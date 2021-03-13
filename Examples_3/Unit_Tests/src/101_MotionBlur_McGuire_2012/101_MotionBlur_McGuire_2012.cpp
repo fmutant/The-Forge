@@ -82,12 +82,7 @@ constexpr float cMotionBlurExposureTime = 0.5f; //of frame
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SFLOAT;
 struct UniformMotionBlurData
 {
-	vec4 mConsts; // x -> k, y -> 1.0f / k, z -> 0.5f * exposure time * frame rate
-
-	float mWidth;
-	float mHeight;
-	float mKasfloat;
-	uint32_t mKasuint;
+	vec4 mConsts; // x -> k, y -> 0.5f * exposure time * frame rate, z -> 1.0f / width, w -> 1.0f / height
 };
 
 // Have a uniform for extended camera data
@@ -1820,18 +1815,12 @@ public:
 		gUniformDataCamera.mProjectView = ViewProjMat;
 		gUniformDataCamera.mCamPos = pCameraController->getViewPosition();
 
-		gUniformDataCamera.mMotionBlurParams = vec4(
-			0.5f * (cMotionBlurExposureTime * deltaTime),
+		gUniformDataCamera.mMotionBlurParams = gUniformDataMotionBlur.mConsts = vec4(
 			cMotionBlurK,
-			static_cast<float>(mSettings.mWidth),
-			static_cast<float>(mSettings.mHeight)
+			0.5f * (cMotionBlurExposureTime * deltaTime),
+			1.0f / static_cast<float>(mSettings.mWidth),
+			1.0f / static_cast<float>(mSettings.mHeight)
 		);
-
-		gUniformDataMotionBlur.mConsts = vec4(cMotionBlurK, 1.0f / cMotionBlurK, 0.5f * cMotionBlurExposureTime * deltaTime, 0.0f);
-		gUniformDataMotionBlur.mWidth = static_cast<float>(mSettings.mWidth);
-		gUniformDataMotionBlur.mHeight = static_cast<float>(mSettings.mHeight);
-		gUniformDataMotionBlur.mKasfloat = cMotionBlurK;
-		gUniformDataMotionBlur.mKasuint = static_cast<uint32_t>(cMotionBlurK);
 
 		viewMat.setTranslation(vec3(0));
 		gUniformDataSky = gUniformDataCamera;

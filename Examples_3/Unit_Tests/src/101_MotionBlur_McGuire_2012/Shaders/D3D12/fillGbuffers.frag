@@ -155,10 +155,9 @@ PSOut main(PsIn input) : SV_TARGET
 	//Out.motion  = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
 
 	float2 q = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
-	q *= motionBlurParams.x;
+	q *= motionBlurParams.y;
 	float len_q = length(q);
-	const float2 half_pixel = float2(0.5f / motionBlurParams.z, 0.5f / motionBlurParams.w);
-	Out.motion = q * (max(half_pixel, min(len_q, motionBlurParams.y))) / (len_q + 1e-6);
+	Out.motion = q * (max(0.5f * motionBlurParams.zw, min(len_q, motionBlurParams.x))) / (len_q + 1e-6);
 
 	return Out;
 }
