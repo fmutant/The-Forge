@@ -1,4 +1,4 @@
-Texture2D<float2> TileMaxTexture : register(t0);
+Texture2D<float2> TileMaxTexture : register(t11);
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
