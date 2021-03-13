@@ -2155,16 +2155,33 @@ public:
 				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
 				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 			}
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Reconstruct");
+				rtBarriers[0] = { pMotionBlurredBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				rtBarriers[1] = { pSceneBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 2, rtBarriers);
+				loadActions = {};
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
+				loadActions.mClearColorValues[0] = pMotionBlurredBuffer->mClearValue;
+				cmdBindRenderTargets(cmd, 1, &pMotionBlurredBuffer, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, (float)pMotionBlurredBuffer->mWidth, (float)pMotionBlurredBuffer->mHeight, 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pMotionBlurredBuffer->mWidth, pMotionBlurredBuffer->mHeight);
+				cmdBindPipeline(cmd, pMotionBlurReconstructPipeline);
+				cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurReconstruct[0]);
+				cmdDraw(cmd, 3, 0);
+				rtBarriers[0] = { pMotionBlurredBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Apply Reflections");
 
 		RenderTarget* pRenderTarget = pSwapChain->ppRenderTargets[swapchainImageIndex];
-
-		rtBarriers[0] = { pSceneBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-		rtBarriers[1] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
-		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+		
+		rtBarriers[0] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
+		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 1, rtBarriers);
 
 		loadActions = {};
 
@@ -2325,18 +2342,20 @@ public:
 		}
 		//Motion blur Reconstruct
 		{
-			DescriptorData MotionBlurReconstructParams[5] = {};
-			MotionBlurReconstructParams[0].pName = "SceneTexture";
-			MotionBlurReconstructParams[0].ppTextures = &pSceneBuffer->pTexture;
-			MotionBlurReconstructParams[1].pName = "DepthTexture";
-			MotionBlurReconstructParams[1].ppTextures = &pDepthBuffer->pTexture;
-			MotionBlurReconstructParams[2].pName = "VelocityTexture";
-			MotionBlurReconstructParams[2].ppTextures = &pVelocityBuffer->pTexture;
-			MotionBlurReconstructParams[3].pName = "TileMaxTexture";
-			MotionBlurReconstructParams[3].ppTextures = &pTileMaxBuffer->pTexture;
-			MotionBlurReconstructParams[4].pName = "NeighborMaxTexture";
-			MotionBlurReconstructParams[4].ppTextures = &pNeighborMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurReconstruct[0], 5, MotionBlurReconstructParams);
+			DescriptorData MotionBlurReconstructParams[6] = {};
+			MotionBlurReconstructParams[0].pName = "cbMotionBlurConsts";
+			MotionBlurReconstructParams[0].ppBuffers = &pBufferUniformMotionBlur;
+			MotionBlurReconstructParams[1].pName = "SceneTexture";
+			MotionBlurReconstructParams[1].ppTextures = &pSceneBuffer->pTexture;
+			MotionBlurReconstructParams[2].pName = "DepthTexture";
+			MotionBlurReconstructParams[2].ppTextures = &pDepthBuffer->pTexture;
+			MotionBlurReconstructParams[3].pName = "VelocityTexture";
+			MotionBlurReconstructParams[3].ppTextures = &pVelocityBuffer->pTexture;
+			MotionBlurReconstructParams[4].pName = "TileMaxTexture";
+			MotionBlurReconstructParams[4].ppTextures = &pTileMaxBuffer->pTexture;
+			MotionBlurReconstructParams[5].pName = "NeighborMaxTexture";
+			MotionBlurReconstructParams[5].ppTextures = &pNeighborMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurReconstruct[0], 6, MotionBlurReconstructParams);
 		}
 	}
 
