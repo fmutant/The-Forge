@@ -53,8 +53,19 @@
 
 #include "../../../../Common_3/OS/Interfaces/IMemory.h"
 
-#define DEFERRED_RT_COUNT 4
+enum GBuffers
+{
+	Albedo,
+	Normal,
+	Specular,
+	Motion,
+	Count,
+};
+
+//#define DEFERRED_RT_COUNT 4
 //#define MAX_PLANES 4
+
+constexpr TinyImageFormat cSceneBufferFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
 
 // Have a uniform for camera data
 struct UniformCamData
@@ -62,6 +73,18 @@ struct UniformCamData
 	mat4 mProjectView;
 	mat4 mPrevProjectView;
 	vec3 mCamPos;
+};
+
+constexpr float cMotionBlurK = 15;
+constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
+struct UniformMotionBlurData
+{
+	vec4 mConsts; // x -> k, y -> 1.0f / k, z -> 0.5f * exposure time * frame rate
+
+	float mWidth;
+	float mHeight;
+	float mKasfloat;
+	uint32_t mKasuint;
 };
 
 // Have a uniform for extended camera data
@@ -271,9 +294,14 @@ Cmd*     pCmds[gImageCount];
 
 SwapChain* pSwapChain = NULL;
 
-RenderTarget* pRenderTargetDeferredPass[2][DEFERRED_RT_COUNT] = { { NULL }, { NULL } };
+RenderTarget* pRenderTargetDeferredPass[2][GBuffers::Count] = { { NULL }, { NULL } };
 
 RenderTarget* pSceneBuffer = NULL;
+
+RenderTarget* pVelocityBuffer = nullptr;
+RenderTarget* pTileMaxBuffer = nullptr;
+RenderTarget* pNeighborMaxBuffer = nullptr;
+RenderTarget* pMotionBlurredBuffer = nullptr;
 
 RenderTarget* pDepthBuffer = NULL;
 Fence*        pRenderCompleteFences[gImageCount] = { NULL };
@@ -302,6 +330,21 @@ Shader*        pShaderGbuffers = NULL;
 Pipeline*      pPipelineGbuffers = NULL;
 RootSignature* pRootSigGbuffers = NULL;
 DescriptorSet* pDescriptorSetGbuffers[3] = { NULL };
+
+Shader*        pMotionBlurTileMaxShader = nullptr;
+RootSignature* pMotionBlurTileMaxRootSignature = nullptr;
+Pipeline*      pMotionBlurTileMaxPipeline = nullptr;
+DescriptorSet* pDescriptorSetMotionBlurTileMax[1] = { nullptr };
+
+Shader*        pMotionBlurNeighborMaxShader = nullptr;
+RootSignature* pMotionBlurNeighborMaxRootSignature = nullptr;
+Pipeline*      pMotionBlurNeighborMaxPipeline = nullptr;
+DescriptorSet* pDescriptorSetMotionBlurNeighborMax[1] = { nullptr };
+
+Shader*        pMotionBlurReconstructShader = nullptr;
+RootSignature* pMotionBlurReconstructRootSignature = nullptr;
+Pipeline*      pMotionBlurReconstructPipeline = nullptr;
+DescriptorSet* pDescriptorSetMotionBlurReconstruct[1] = { nullptr };
 
 Texture* pSkybox = NULL;
 Texture* pBRDFIntegrationMap = NULL;
@@ -338,6 +381,9 @@ Buffer*        pBufferUniformCamera[gImageCount] = { NULL };
 UniformCamData gUniformDataCamera;
 
 UniformCamData gUniformDataSky;
+
+Buffer*				  pBufferUniformMotionBlur[gImageCount] = { nullptr };
+UniformMotionBlurData gUniformDataMotionBlur;
 
 Buffer*                pBufferUniformExtendedCamera[gImageCount] = { NULL };
 UniformExtendedCamData gUniformDataExtenedCamera;
@@ -395,12 +441,12 @@ void RunScript()
 	gAppUI.RunTestScript(gTestScripts[gCurrentScriptIndex]);
 }
 
-class CleanSponza : public IApp
+class MotionBlurMcGuire2012 : public IApp
 {
 	size_t mProgressBarValue = 0, mProgressBarValueMax = 1024;
 
-	public:
-	CleanSponza()
+public:
+	MotionBlurMcGuire2012()
 	{
 #ifdef TARGET_IOS
 		mSettings.mContentScaleFactor = 1.f;
@@ -560,6 +606,53 @@ class CleanSponza : public IApp
 		PPR_HolePatchingRootDesc.ppStaticSamplerNames = pStaticSamplerforHolePatchingNames;
 		PPR_HolePatchingRootDesc.ppStaticSamplers = pStaticSamplersforHolePatching;
 		addRootSignature(pRenderer, &PPR_HolePatchingRootDesc, &pPPR_HolePatchingRootSignature);
+
+		{
+			// Motion Blur
+			{
+				ShaderLoadDesc MotionBlurTileMaxShaderDesc = {};
+				MotionBlurTileMaxShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
+				MotionBlurTileMaxShaderDesc.mStages[1] = { "MotionBlurTileMax.frag", nullptr, 0 };
+				addShader(pRenderer, &MotionBlurTileMaxShaderDesc, &pMotionBlurTileMaxShader);
+				const char* pStaticSamplerforTileMaxNames[] = { "nearestSampler", "bilinearSampler" };
+				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearest, pSamplerBilinear };
+
+				RootSignatureDesc MotionBlurTileMaxRootDesc = { &pMotionBlurTileMaxShader, 1 };
+				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 2;
+				MotionBlurTileMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforTileMaxNames;
+				MotionBlurTileMaxRootDesc.ppStaticSamplers = pStaticSamplersforTileMax;
+				addRootSignature(pRenderer, &MotionBlurTileMaxRootDesc, &pMotionBlurTileMaxRootSignature);
+			}
+			{
+				ShaderLoadDesc MotionBlurNeighborMaxShaderDesc = {};
+				MotionBlurNeighborMaxShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
+				MotionBlurNeighborMaxShaderDesc.mStages[1] = { "MotionBlurNeighborMax.frag", nullptr, 0 };
+				addShader(pRenderer, &MotionBlurNeighborMaxShaderDesc, &pMotionBlurNeighborMaxShader);
+				const char* pStaticSamplerforNeighborMaxNames[] = { "nearestSampler", "bilinearSampler" };
+				Sampler*    pStaticSamplersforNeighborMax[] = { pSamplerNearest, pSamplerBilinear };
+
+				RootSignatureDesc MotionBlurNeighborMaxRootDesc = { &pMotionBlurNeighborMaxShader, 1 };
+				MotionBlurNeighborMaxRootDesc.mStaticSamplerCount = 2;
+				MotionBlurNeighborMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforNeighborMaxNames;
+				MotionBlurNeighborMaxRootDesc.ppStaticSamplers = pStaticSamplersforNeighborMax;
+				addRootSignature(pRenderer, &MotionBlurNeighborMaxRootDesc, &pMotionBlurNeighborMaxRootSignature);
+			}
+			{
+				ShaderLoadDesc MotionBlurReconstructShaderDesc = {};
+				MotionBlurReconstructShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
+				MotionBlurReconstructShaderDesc.mStages[1] = { "MotionBlurReconstruct.frag", nullptr, 0 };
+				addShader(pRenderer, &MotionBlurReconstructShaderDesc, &pMotionBlurReconstructShader);
+				const char* pStaticSamplerforReconstructNames[] = { "nearestSampler", "bilinearSampler" };
+				Sampler*    pStaticSamplersforReconstruct[] = { pSamplerNearest, pSamplerBilinear };
+
+				RootSignatureDesc MotionBlurReconstructRootDesc = { &pMotionBlurReconstructShader, 1 };
+				MotionBlurReconstructRootDesc.mStaticSamplerCount = 2;
+				MotionBlurReconstructRootDesc.ppStaticSamplerNames = pStaticSamplerforReconstructNames;
+				MotionBlurReconstructRootDesc.ppStaticSamplers = pStaticSamplersforReconstruct;
+				addRootSignature(pRenderer, &MotionBlurReconstructRootDesc, &pMotionBlurReconstructRootSignature);
+			}
+		}
+
 		// Skybox
 		DescriptorSetDesc setDesc = { pSkyboxRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetSkybox[0]);
@@ -584,11 +677,18 @@ class CleanSponza : public IApp
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetBRDF[0]);
 		setDesc = { pRootSigBRDF, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetBRDF[1]);
-		// PPR Projection
 		// PPR Hole Patching
 		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetPPR__HolePatching[0]);
-
+		//Motion blur
+		{
+			setDesc = { pMotionBlurTileMaxRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetMotionBlurTileMax[0]);
+			setDesc = { pMotionBlurNeighborMaxRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetMotionBlurNeighborMax[0]);
+			setDesc = { pMotionBlurReconstructRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetMotionBlurReconstruct[0]);
+		}
 		BufferLoadDesc sponza_buffDesc = {};
 		sponza_buffDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		sponza_buffDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
@@ -686,6 +786,19 @@ class CleanSponza : public IApp
 		{
 			ubECamDesc.ppBuffer = &pBufferUniformExtendedCamera[i];
 			addResource(&ubECamDesc, NULL);
+		}
+
+		// Uniform buffer for motion blur data
+		BufferLoadDesc ubMotionBlurDesc = {};
+		ubMotionBlurDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		ubMotionBlurDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
+		ubMotionBlurDesc.mDesc.mSize = sizeof(UniformMotionBlurData);
+		ubMotionBlurDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
+		ubMotionBlurDesc.pData = nullptr;
+		for (uint32_t i = 0; i < gImageCount; ++i)
+		{
+			ubMotionBlurDesc.ppBuffer = &pBufferUniformMotionBlur[i];
+			addResource(&ubMotionBlurDesc, nullptr);
 		}
 
 		// Uniform buffer for light data
@@ -940,6 +1053,10 @@ class CleanSponza : public IApp
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 
+		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurTileMax[0]);
+		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurNeighborMax[0]);
+		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurReconstruct[0]);
+
 		for (uint32_t i = 0; i < gImageCount; ++i)
 		{
 			removeFence(pRenderer, pRenderCompleteFences[i]);
@@ -962,6 +1079,7 @@ class CleanSponza : public IApp
 			removeResource(pBufferUniformExtendedCamera[i]);
 			removeResource(pBufferUniformCameraSky[i]);
 			removeResource(pBufferUniformCamera[i]);
+			removeResource(pBufferUniformMotionBlur[i]);
 		}
 
 		removeResource(pBufferUniformLights);
@@ -978,6 +1096,9 @@ class CleanSponza : public IApp
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
 		removeShader(pRenderer, pShaderGbuffers);
+		removeShader(pRenderer, pMotionBlurTileMaxShader);
+		removeShader(pRenderer, pMotionBlurNeighborMaxShader);
+		removeShader(pRenderer, pMotionBlurReconstructShader);
 
 		removeSampler(pRenderer, pSamplerBilinear);
 		removeSampler(pRenderer, pSamplerNearest);
@@ -986,6 +1107,9 @@ class CleanSponza : public IApp
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
+		removeRootSignature(pRenderer, pMotionBlurTileMaxRootSignature);
+		removeRootSignature(pRenderer, pMotionBlurNeighborMaxRootSignature);
+		removeRootSignature(pRenderer, pMotionBlurReconstructRootSignature);
 
 		// Remove commands and command pool&
 		for (uint32_t i = 0; i < gImageCount; ++i)
@@ -1375,6 +1499,15 @@ class CleanSponza : public IApp
 		if (!addDepthBuffer())
 			return false;
 
+		if (!addVelocityBuffer())
+			return false;
+		if (!addTileMaxBuffer())
+			return false;
+		if (!addNeighborMaxBuffer())
+			return false;
+		if (!addMotionBlurredBuffer())
+			return false;
+
 		if (!gAppUI.Load(pSwapChain->ppRenderTargets))
 			return false;
 
@@ -1384,8 +1517,8 @@ class CleanSponza : public IApp
 		/************************************************************************/
 		// Setup the resources needed for the Deferred Pass Pipeline
 		/************************************************************************/
-		TinyImageFormat deferredFormats[DEFERRED_RT_COUNT] = {};
-		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
+		TinyImageFormat deferredFormats[GBuffers::Count] = {};
+		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 		{
 			deferredFormats[i] = pRenderTargetDeferredPass[0][i]->mFormat;
 		}
@@ -1403,7 +1536,7 @@ class CleanSponza : public IApp
 		desc.mType = PIPELINE_TYPE_GRAPHICS;
 		GraphicsPipelineDesc& deferredPassPipelineSettings = desc.mGraphicsDesc;
 		deferredPassPipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
-		deferredPassPipelineSettings.mRenderTargetCount = DEFERRED_RT_COUNT;
+		deferredPassPipelineSettings.mRenderTargetCount = GBuffers::Count;
 		deferredPassPipelineSettings.pDepthState = &depthStateDesc;
 
 		deferredPassPipelineSettings.pColorFormats = deferredFormats;
@@ -1429,7 +1562,7 @@ class CleanSponza : public IApp
 
 		deferredPassPipelineSettings = {};
 		deferredPassPipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
-		deferredPassPipelineSettings.mRenderTargetCount = DEFERRED_RT_COUNT;
+		deferredPassPipelineSettings.mRenderTargetCount = GBuffers::Count;
 		deferredPassPipelineSettings.pDepthState = NULL;
 
 		deferredPassPipelineSettings.mRenderTargetCount = 1;
@@ -1445,6 +1578,8 @@ class CleanSponza : public IApp
 		addPipeline(pRenderer, &desc, &pSkyboxPipeline);
 
 		// BRDF
+		//triangle
+		VertexLayout vertexLayoutScreenTriangle = { 0 };
 		//Position
 		VertexLayout vertexLayoutScreenQuad = {};
 		vertexLayoutScreenQuad.mAttribCount = 2;
@@ -1497,6 +1632,58 @@ class CleanSponza : public IApp
 		pipelineSettings.pRasterizerState = &rasterizerStateDesc;
 		addPipeline(pRenderer, &desc, &pPPR_HolePatchingPipeline);
 
+		{
+			pipelineSettings = { 0 };
+			pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			pipelineSettings.mRenderTargetCount = 1;
+			pipelineSettings.pDepthState = nullptr;
+
+			pipelineSettings.pColorFormats = &pTileMaxBuffer->mFormat;
+			pipelineSettings.mSampleCount = pTileMaxBuffer->mSampleCount;
+			pipelineSettings.mSampleQuality = pTileMaxBuffer->mSampleQuality;
+
+			pipelineSettings.mDepthStencilFormat = TinyImageFormat_UNDEFINED;
+			pipelineSettings.pRootSignature = pMotionBlurTileMaxRootSignature;
+			pipelineSettings.pShaderProgram = pMotionBlurTileMaxShader;
+			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
+			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pMotionBlurTileMaxPipeline);
+		}
+		{
+			pipelineSettings = { 0 };
+			pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			pipelineSettings.mRenderTargetCount = 1;
+			pipelineSettings.pDepthState = nullptr;
+
+			pipelineSettings.pColorFormats = &pNeighborMaxBuffer->mFormat;
+			pipelineSettings.mSampleCount = pNeighborMaxBuffer->mSampleCount;
+			pipelineSettings.mSampleQuality = pNeighborMaxBuffer->mSampleQuality;
+
+			pipelineSettings.mDepthStencilFormat = TinyImageFormat_UNDEFINED;
+			pipelineSettings.pRootSignature = pMotionBlurNeighborMaxRootSignature;
+			pipelineSettings.pShaderProgram = pMotionBlurNeighborMaxShader;
+			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
+			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pMotionBlurNeighborMaxPipeline);
+		}
+		{
+			pipelineSettings = { 0 };
+			pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			pipelineSettings.mRenderTargetCount = 1;
+			pipelineSettings.pDepthState = nullptr;
+
+			pipelineSettings.pColorFormats = &pMotionBlurredBuffer->mFormat;
+			pipelineSettings.mSampleCount = pMotionBlurredBuffer->mSampleCount;
+			pipelineSettings.mSampleQuality = pMotionBlurredBuffer->mSampleQuality;
+
+			pipelineSettings.mDepthStencilFormat = TinyImageFormat_UNDEFINED;
+			pipelineSettings.pRootSignature = pMotionBlurReconstructRootSignature;
+			pipelineSettings.pShaderProgram = pMotionBlurReconstructShader;
+			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
+			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pMotionBlurReconstructPipeline);
+		}
+
 		PrepareDescriptorSets(false);
 
 		return true;
@@ -1517,15 +1704,22 @@ class CleanSponza : public IApp
 		removePipeline(pRenderer, pSkyboxPipeline);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
+		removePipeline(pRenderer, pMotionBlurTileMaxPipeline);
+		removePipeline(pRenderer, pMotionBlurNeighborMaxPipeline);
+		removePipeline(pRenderer, pMotionBlurReconstructPipeline);
 
 		removeRenderTarget(pRenderer, pDepthBuffer);
 		removeRenderTarget(pRenderer, pSceneBuffer);
 
-		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
+		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 			removeRenderTarget(pRenderer, pRenderTargetDeferredPass[0][i]);
 
 		removeRenderTarget(pRenderer, pRenderTargetDeferredPass[1][1]);
 		removeRenderTarget(pRenderer, pRenderTargetDeferredPass[1][2]);
+
+		removeRenderTarget(pRenderer, pTileMaxBuffer);
+		removeRenderTarget(pRenderer, pNeighborMaxBuffer);
+		removeRenderTarget(pRenderer, pMotionBlurredBuffer);
 
 		removeSwapChain(pRenderer, pSwapChain);
 	}
@@ -1569,6 +1763,12 @@ class CleanSponza : public IApp
 		gUniformDataCamera.mPrevProjectView = gUniformDataCamera.mProjectView;
 		gUniformDataCamera.mProjectView = ViewProjMat;
 		gUniformDataCamera.mCamPos = pCameraController->getViewPosition();
+
+		gUniformDataMotionBlur.mConsts = vec4(cMotionBlurK, 1.0f / cMotionBlurK, 0.5f * 0.5f * 60.0f, 0.5f * 0.5f * (1.0f / 60.0f));
+		gUniformDataMotionBlur.mWidth = static_cast<float>(mSettings.mWidth);
+		gUniformDataMotionBlur.mHeight = static_cast<float>(mSettings.mHeight);
+		gUniformDataMotionBlur.mKasfloat = cMotionBlurK;
+		gUniformDataMotionBlur.mKasuint = static_cast<uint32_t>(cMotionBlurK);
 
 		viewMat.setTranslation(vec3(0));
 		gUniformDataSky = gUniformDataCamera;
@@ -1617,6 +1817,11 @@ class CleanSponza : public IApp
 
 		resetCmdPool(pRenderer, pCmdPools[gFrameIndex]);
 
+		BufferUpdateDesc motionBlurUpdateDesc = { pBufferUniformMotionBlur[gFrameIndex] };
+		beginUpdateResource(&motionBlurUpdateDesc);
+		*(UniformMotionBlurData*)motionBlurUpdateDesc.pMappedData = gUniformDataMotionBlur;
+		endUpdateResource(&motionBlurUpdateDesc, nullptr);
+
 		BufferUpdateDesc camBuffUpdateDesc = { pBufferUniformCamera[gFrameIndex] };
 		beginUpdateResource(&camBuffUpdateDesc);
 		*(UniformCamData*)camBuffUpdateDesc.pMappedData = gUniformDataCamera;
@@ -1640,7 +1845,7 @@ class CleanSponza : public IApp
 
 		//Clear G-buffers and Depth buffer
 		LoadActionsDesc loadActions = {};
-		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
+		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 		{
 			loadActions.mLoadActionsColor[i] = LOAD_ACTION_CLEAR;
 			loadActions.mClearColorValues[i] = pRenderTargetDeferredPass[0][i]->mClearValue;
@@ -1650,16 +1855,16 @@ class CleanSponza : public IApp
 		loadActions.mClearDepth = { { 1.0f, 0.0f } };    // Clear depth to the far plane and stencil to 0
 
 		// Transfer G-buffers to render target state for each buffer
-		RenderTargetBarrier rtBarriers[DEFERRED_RT_COUNT + 2] = {};
+		RenderTargetBarrier rtBarriers[GBuffers::Count + 2] = {};
 		rtBarriers[0] = { pDepthBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_DEPTH_WRITE };
-		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
+		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 		{
 			rtBarriers[1 + i] = { pRenderTargetDeferredPass[gFrameFlipFlop][i], RESOURCE_STATE_SHADER_RESOURCE,
 								  RESOURCE_STATE_RENDER_TARGET };
 		}
 
 		// Transfer DepthBuffer to a DephtWrite State
-		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, DEFERRED_RT_COUNT + 1, rtBarriers);
+		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, GBuffers::Count + 1, rtBarriers);
 
 		cmdBindRenderTargets(cmd, 1, pRenderTargetDeferredPass[gFrameFlipFlop], pDepthBuffer, &loadActions, NULL, NULL, -1, -1);
 		cmdSetViewport(
@@ -1680,7 +1885,7 @@ class CleanSponza : public IApp
 
 		loadActions.mLoadActionsColor[0] = LOAD_ACTION_LOAD;
 		cmdBindRenderTargets(
-			cmd, DEFERRED_RT_COUNT, pRenderTargetDeferredPass[gFrameFlipFlop], pDepthBuffer, &loadActions, NULL, NULL, -1, -1);
+			cmd, GBuffers::Count, pRenderTargetDeferredPass[gFrameFlipFlop], pDepthBuffer, &loadActions, NULL, NULL, -1, -1);
 		cmdSetViewport(
 			cmd, 0.0f, 0.0f, (float)pRenderTargetDeferredPass[0][0]->mWidth, (float)pRenderTargetDeferredPass[0][0]->mHeight, 0.0f, 1.0f);
 		cmdSetScissor(cmd, 0, 0, pRenderTargetDeferredPass[0][0]->mWidth, pRenderTargetDeferredPass[0][0]->mHeight);
@@ -1821,13 +2026,13 @@ class CleanSponza : public IApp
 		// Transfer current render target to a render target state
 		rtBarriers[1] = { pSceneBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
 		// Transfer G-buffers to a Shader resource state
-		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
+		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 		{
 			rtBarriers[2 + i] = { pRenderTargetDeferredPass[gFrameFlipFlop][i], RESOURCE_STATE_RENDER_TARGET,
 								  RESOURCE_STATE_SHADER_RESOURCE };
 		}
 
-		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, DEFERRED_RT_COUNT + 2, rtBarriers);
+		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, GBuffers::Count + 2, rtBarriers);
 
 		loadActions = {};
 
@@ -1929,7 +2134,7 @@ class CleanSponza : public IApp
 		gFrameFlipFlop ^= 1;
 	}
 
-	const char* GetName() { return "100_CleanSponza"; }
+	const char* GetName() { return "101_MotionBLur_McGuire_2012"; }
 
 	void PrepareDescriptorSets(bool dataLoaded)
 	{
@@ -1997,6 +2202,36 @@ class CleanSponza : public IApp
 			PPR_HolePatchingParams[0].ppTextures = &pSceneBuffer->pTexture;
 			updateDescriptorSet(pRenderer, 0, pDescriptorSetPPR__HolePatching[0], 1, PPR_HolePatchingParams);
 		}
+
+		// Motion blur TileMax
+		{
+			DescriptorData MotionBlurTileMaxParams[1] = {};
+			MotionBlurTileMaxParams[0].pName = "VelocityTexture";
+			MotionBlurTileMaxParams[0].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 1, MotionBlurTileMaxParams);
+		}
+		//Motion blur NeighborMax
+		{
+			DescriptorData MotionBlurNeighborMaxParams[1] = {};
+			MotionBlurNeighborMaxParams[0].pName = "TileMaxTexture";
+			MotionBlurNeighborMaxParams[0].ppTextures = &pTileMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurNeighborMax[0], 1, MotionBlurNeighborMaxParams);
+		}
+		//Motion blur Reconstruct
+		{
+			DescriptorData MotionBlurReconstructParams[5] = {};
+			MotionBlurReconstructParams[0].pName = "SceneTexture";
+			MotionBlurReconstructParams[0].ppTextures = &pSceneBuffer->pTexture;
+			MotionBlurReconstructParams[1].pName = "DepthTexture";
+			MotionBlurReconstructParams[1].ppTextures = &pDepthBuffer->pTexture;
+			MotionBlurReconstructParams[2].pName = "VelocityTexture";
+			MotionBlurReconstructParams[2].ppTextures = &pVelocityBuffer->pTexture;
+			MotionBlurReconstructParams[3].pName = "TileMaxTexture";
+			MotionBlurReconstructParams[3].ppTextures = &pTileMaxBuffer->pTexture;
+			MotionBlurReconstructParams[4].pName = "NeighborMaxTexture";
+			MotionBlurReconstructParams[4].ppTextures = &pNeighborMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurReconstruct[0], 5, MotionBlurReconstructParams);
+		}
 	}
 
 	bool addSwapChain()
@@ -2022,7 +2257,7 @@ class CleanSponza : public IApp
 		sceneRT.mClearValue = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 		sceneRT.mDepth = 1;
 		sceneRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
-		sceneRT.mFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
+		sceneRT.mFormat = cSceneBufferFormat;
 		sceneRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
 
 		sceneRT.mHeight = mSettings.mHeight;
@@ -2056,7 +2291,7 @@ class CleanSponza : public IApp
 		deferredRTDesc.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
 		deferredRTDesc.pName = "G-Buffer RTs";
 
-		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
+		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 		{
 			if (i == 1 || i == 2)
 				deferredRTDesc.mFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
@@ -2123,6 +2358,70 @@ class CleanSponza : public IApp
 		addRenderTarget(pRenderer, &depthRT, &pDepthBuffer);
 
 		return pDepthBuffer != NULL;
+	}
+
+	bool addVelocityBuffer()
+	{
+		pVelocityBuffer = pRenderTargetDeferredPass[0][GBuffers::Motion];
+
+		return pVelocityBuffer != NULL;
+	}
+
+	bool addTileMaxBuffer()
+	{
+		RenderTargetDesc tilemaxRT = {};
+		tilemaxRT.mWidth = static_cast<uint32_t>(mSettings.mWidth / cMotionBlurK);
+		tilemaxRT.mHeight = static_cast<uint32_t>(mSettings.mHeight / cMotionBlurK);
+		tilemaxRT.mArraySize = 1;
+		tilemaxRT.mDepth = 1;
+		tilemaxRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
+		tilemaxRT.mFormat = cMotionBlurBufferFormat;
+		tilemaxRT.mClearValue = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+		tilemaxRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		tilemaxRT.mSampleCount = SAMPLE_COUNT_1;
+		tilemaxRT.mSampleQuality = 0;
+		tilemaxRT.pName = "TileMax Buffer";
+
+		addRenderTarget(pRenderer, &tilemaxRT, &pTileMaxBuffer);
+		return pTileMaxBuffer != nullptr;
+	}
+
+	bool addNeighborMaxBuffer()
+	{
+		RenderTargetDesc neighborRT = {};
+		neighborRT.mWidth = static_cast<uint32_t>(mSettings.mWidth / cMotionBlurK);
+		neighborRT.mHeight = static_cast<uint32_t>(mSettings.mHeight / cMotionBlurK);
+		neighborRT.mArraySize = 1;
+		neighborRT.mDepth = 1;
+		neighborRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
+		neighborRT.mFormat = cMotionBlurBufferFormat;
+		neighborRT.mClearValue = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+		neighborRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		neighborRT.mSampleCount = SAMPLE_COUNT_1;
+		neighborRT.mSampleQuality = 0;
+		neighborRT.pName = "Neighbor Buffer";
+
+		addRenderTarget(pRenderer, &neighborRT, &pNeighborMaxBuffer);
+		return pNeighborMaxBuffer != nullptr;
+	}
+
+	bool addMotionBlurredBuffer()
+	{
+		RenderTargetDesc motionblurredRT = {};
+		motionblurredRT.mWidth = mSettings.mWidth;
+		motionblurredRT.mHeight = mSettings.mHeight;
+		motionblurredRT.mArraySize = 1;
+		motionblurredRT.mDepth = 1;
+		motionblurredRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
+		motionblurredRT.mFormat = cSceneBufferFormat;
+		motionblurredRT.mClearValue = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+		motionblurredRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		motionblurredRT.mSampleCount = SAMPLE_COUNT_1;
+		motionblurredRT.mSampleQuality = 0;
+		motionblurredRT.pName = "MotionBlurred Buffer";
+
+		addRenderTarget(pRenderer, &motionblurredRT, &pMotionBlurredBuffer);
+		return pMotionBlurredBuffer != nullptr;
 	}
 };
 
@@ -2314,4 +2613,4 @@ void assignSponzaTextures()
 	gSponzaTextureIndexforMaterial.push_back(AO);
 }
 
-DEFINE_APPLICATION_MAIN(CleanSponza)
+DEFINE_APPLICATION_MAIN(MotionBlurMcGuire2012)
