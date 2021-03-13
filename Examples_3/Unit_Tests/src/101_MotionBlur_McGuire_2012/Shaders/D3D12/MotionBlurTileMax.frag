@@ -1,6 +1,6 @@
 Texture2D<float2> VelocityTexture : register(t0);
 
-cbuffer cbMotionBlurConsts : register(b0)
+cbuffer cbMotionBlurConsts : register(b3)
 {
 	float4 mConsts;
 	

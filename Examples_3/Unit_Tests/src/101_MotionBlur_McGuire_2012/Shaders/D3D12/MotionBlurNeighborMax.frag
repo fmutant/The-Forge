@@ -1,6 +1,6 @@
 Texture2D<float2> TileMaxTexture : register(t0);
 
-cbuffer cbMotionBlurConsts : register(b0)
+cbuffer cbMotionBlurConsts : register(b3)
 {
 	float4 mConsts;
 	
@@ -25,15 +25,16 @@ float2 vmax(float2 v0, float2 v1)
 
 float2 main(VSOutput input) : SV_TARGET
 {
-	float2 texcoord_tile = input.texcoord;
-	float2 texcoord_neighbor = texcoord_tile;
-	uint k = floor(mConsts.x);
+	float2 uv_tile = input.texcoord;
+	float2 uv_tile_diff = float2(mKasfloat / mWidth, mKasfloat / mHeight);
 	float2 neighbor_max = float2(0.0f, 0.0f);
-	for (int i = -1; i <= 1; ++i)
+	for (float i = -1.0f; i <= 1.0f; i += 1.0f)
 	{
-		for (int j = -1; j <= 1; ++j)
+		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
 		{
-			neighbor_max = vmax(TileMaxTexture.Sample(nearestSampler, texcoord_tile + float2(i, j)), neighbor_max);
+			float2 uv_sample = uv_tile + float2(i, j) * uv_tile_diff;
+			float2 tilemax = TileMaxTexture.Sample(nearestSampler, uv_sample);
+			neighbor_max = vmax(tilemax, neighbor_max);
 		}
 	}
 	return neighbor_max;

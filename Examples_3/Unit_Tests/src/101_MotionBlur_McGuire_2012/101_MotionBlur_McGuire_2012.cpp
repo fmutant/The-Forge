@@ -403,6 +403,7 @@ Sampler* pSamplerBilinear = NULL;
 Sampler* pSamplerLinear = NULL;
 
 Sampler* pSamplerNearest = NULL;
+Sampler* pSamplerNearestBorder = nullptr;
 
 uint32_t gFrameIndex = 0;
 uint32_t gFrameFlipFlop = 0;
@@ -533,6 +534,10 @@ public:
 										  ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT };
 		addSampler(pRenderer, &nearstSamplerDesc, &pSamplerNearest);
 
+		SamplerDesc nearestBorderSamplerDesc = { FILTER_NEAREST,      FILTER_NEAREST,      MIPMAP_MODE_NEAREST,
+										  ADDRESS_MODE_CLAMP_TO_BORDER, ADDRESS_MODE_CLAMP_TO_BORDER, ADDRESS_MODE_CLAMP_TO_BORDER };
+		addSampler(pRenderer, &nearstSamplerDesc, &pSamplerNearestBorder);
+
 		// GBuffer
 		char totalImagesShaderMacroBuffer[5] = {};
 		sprintf(totalImagesShaderMacroBuffer, "%i", TOTAL_IMGS);
@@ -615,7 +620,7 @@ public:
 				MotionBlurTileMaxShaderDesc.mStages[1] = { "MotionBlurTileMax.frag", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurTileMaxShaderDesc, &pMotionBlurTileMaxShader);
 				const char* pStaticSamplerforTileMaxNames[] = { "nearestSampler", "bilinearSampler" };
-				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearest, pSamplerBilinear };
+				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearestBorder, pSamplerBilinear };
 
 				RootSignatureDesc MotionBlurTileMaxRootDesc = { &pMotionBlurTileMaxShader, 1 };
 				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 2;
@@ -629,7 +634,7 @@ public:
 				MotionBlurNeighborMaxShaderDesc.mStages[1] = { "MotionBlurNeighborMax.frag", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurNeighborMaxShaderDesc, &pMotionBlurNeighborMaxShader);
 				const char* pStaticSamplerforNeighborMaxNames[] = { "nearestSampler", "bilinearSampler" };
-				Sampler*    pStaticSamplersforNeighborMax[] = { pSamplerNearest, pSamplerBilinear };
+				Sampler*    pStaticSamplersforNeighborMax[] = { pSamplerNearestBorder, pSamplerBilinear };
 
 				RootSignatureDesc MotionBlurNeighborMaxRootDesc = { &pMotionBlurNeighborMaxShader, 1 };
 				MotionBlurNeighborMaxRootDesc.mStaticSamplerCount = 2;
@@ -643,7 +648,7 @@ public:
 				MotionBlurReconstructShaderDesc.mStages[1] = { "MotionBlurReconstruct.frag", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurReconstructShaderDesc, &pMotionBlurReconstructShader);
 				const char* pStaticSamplerforReconstructNames[] = { "nearestSampler", "bilinearSampler" };
-				Sampler*    pStaticSamplersforReconstruct[] = { pSamplerNearest, pSamplerBilinear };
+				Sampler*    pStaticSamplersforReconstruct[] = { pSamplerNearestBorder, pSamplerBilinear };
 
 				RootSignatureDesc MotionBlurReconstructRootDesc = { &pMotionBlurReconstructShader, 1 };
 				MotionBlurReconstructRootDesc.mStaticSamplerCount = 2;
@@ -1102,6 +1107,7 @@ public:
 
 		removeSampler(pRenderer, pSamplerBilinear);
 		removeSampler(pRenderer, pSamplerNearest);
+		removeSampler(pRenderer, pSamplerNearestBorder);
 
 		removeRootSignature(pRenderer, pPPR_HolePatchingRootSignature);
 		removeRootSignature(pRenderer, pRootSigBRDF);
@@ -2058,21 +2064,40 @@ public:
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "MotionBlur");
 		{
-			cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileMax");
-			rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
-			cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
-			loadActions = {};
-			loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
-			loadActions.mClearColorValues[0] = pTileMaxBuffer->mClearValue;
-			cmdBindRenderTargets(cmd, 1, &pTileMaxBuffer, nullptr, &loadActions, nullptr, nullptr, -1, -1);
-			cmdSetViewport(cmd, 0.0f, 0.0f, (float)pTileMaxBuffer->mWidth, (float)pTileMaxBuffer->mHeight, 0.0f, 1.0f);
-			cmdSetScissor(cmd, 0, 0, pTileMaxBuffer->mWidth, pTileMaxBuffer->mHeight);
-			cmdBindPipeline(cmd, pMotionBlurTileMaxPipeline);
-			cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurTileMax[0]);
-			cmdDraw(cmd, 3, 0);
-			rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-			cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
-			cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileMax");
+				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				loadActions = {};
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
+				loadActions.mClearColorValues[0] = pTileMaxBuffer->mClearValue;
+				cmdBindRenderTargets(cmd, 1, &pTileMaxBuffer, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, (float)pTileMaxBuffer->mWidth, (float)pTileMaxBuffer->mHeight, 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pTileMaxBuffer->mWidth, pTileMaxBuffer->mHeight);
+				cmdBindPipeline(cmd, pMotionBlurTileMaxPipeline);
+				cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurTileMax[0]);
+				cmdDraw(cmd, 3, 0);
+				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "NeighborMax");
+				rtBarriers[0] = { pNeighborMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				loadActions = {};
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
+				loadActions.mClearColorValues[0] = pNeighborMaxBuffer->mClearValue;
+				cmdBindRenderTargets(cmd, 1, &pNeighborMaxBuffer, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, (float)pNeighborMaxBuffer->mWidth, (float)pNeighborMaxBuffer->mHeight, 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pNeighborMaxBuffer->mWidth, pNeighborMaxBuffer->mHeight);
+				cmdBindPipeline(cmd, pMotionBlurNeighborMaxPipeline);
+				cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurNeighborMax[0]);
+				cmdDraw(cmd, 3, 0);
+				rtBarriers[0] = { pNeighborMaxBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
@@ -2226,22 +2251,20 @@ public:
 		// Motion blur TileMax
 		{
 			DescriptorData MotionBlurTileMaxParams[2] = {};
-			//for (uint32_t i = 0; i < gImageCount; ++i)
-			{
-				MotionBlurTileMaxParams[0].pName = "cbMotionBlurConsts";
-				MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
-				//updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 1, MotionBlurTileMaxParams);
-			}
+			MotionBlurTileMaxParams[0].pName = "cbMotionBlurConsts";
+			MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
 			MotionBlurTileMaxParams[1].pName = "VelocityTexture";
 			MotionBlurTileMaxParams[1].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
 			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 2, MotionBlurTileMaxParams);
 		}
 		//Motion blur NeighborMax
 		{
-			DescriptorData MotionBlurNeighborMaxParams[1] = {};
-			MotionBlurNeighborMaxParams[0].pName = "TileMaxTexture";
-			MotionBlurNeighborMaxParams[0].ppTextures = &pTileMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurNeighborMax[0], 1, MotionBlurNeighborMaxParams);
+			DescriptorData MotionBlurNeighborMaxParams[2] = {};
+			MotionBlurNeighborMaxParams[0].pName = "cbMotionBlurConsts";
+			MotionBlurNeighborMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
+			MotionBlurNeighborMaxParams[1].pName = "TileMaxTexture";
+			MotionBlurNeighborMaxParams[1].ppTextures = &pTileMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurNeighborMax[0], 2, MotionBlurNeighborMaxParams);
 		}
 		//Motion blur Reconstruct
 		{
