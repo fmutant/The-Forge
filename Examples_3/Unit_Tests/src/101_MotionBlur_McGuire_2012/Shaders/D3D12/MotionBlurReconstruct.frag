@@ -4,7 +4,7 @@ Texture2D<float2> VelocityTexture : register(t10);
 Texture2D<float2> TileMaxTexture : register(t11);
 Texture2D<float2> NeighborMaxTexture : register(t12);
 
-cbuffer cbMotionBlurConsts : register(b0)
+cbuffer cbMotionBlurConsts : register(b3)
 {
 	float4 mConsts;
 	
@@ -14,8 +14,7 @@ cbuffer cbMotionBlurConsts : register(b0)
 	uint mKasuint;
 }
 
-SamplerState nearestSampler : register(s4);
-SamplerState bilinearSampler : register(s5);
+SamplerState nearestSamplerBorder : register(s6);
 
 struct VSOutput {
 	float4 position : SV_POSITION;	
@@ -27,13 +26,13 @@ float4 main(VSOutput input) : SV_TARGET
 	float2 texcoord_pixel = input.texcoord;
 	float2 texcoord_tile = texcoord_pixel / mKasfloat;
 	
-	float4 color = SceneTexture.Sample(nearestSampler, texcoord_pixel);
-	float depth = DepthTexture.Sample(nearestSampler, texcoord_pixel);
+	float4 color = SceneTexture.Sample(nearestSamplerBorder, texcoord_pixel);
+	float depth = DepthTexture.Sample(nearestSamplerBorder, texcoord_pixel);
 	
-	float2 tilemax = TileMaxTexture.Sample(nearestSampler, texcoord_tile);
-	float2 neighbormax = NeighborMaxTexture.Sample(nearestSampler, texcoord_tile);
+	float2 tilemax = TileMaxTexture.Sample(nearestSamplerBorder, texcoord_tile);
+	float2 neighbormax = NeighborMaxTexture.Sample(nearestSamplerBorder, texcoord_tile);
 	
-	float2 velocity = VelocityTexture.Sample(nearestSampler, texcoord_pixel);
+	float2 velocity = VelocityTexture.Sample(nearestSamplerBorder, texcoord_pixel);
 	
 	return color * depth * tilemax.xyxy * neighbormax.xyxy * velocity.xyxy;
 }

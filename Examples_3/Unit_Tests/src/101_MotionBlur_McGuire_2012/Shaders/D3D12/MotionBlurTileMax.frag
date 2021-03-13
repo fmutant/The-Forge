@@ -10,8 +10,7 @@ cbuffer cbMotionBlurConsts : register(b3)
 	uint mKasuint;
 }
 
-SamplerState nearestSampler : register(s4);
-SamplerState bilinearSampler : register(s5);
+SamplerState nearestSamplerBorder : register(s6);
 
 struct VSOutput {
 	float4 position : SV_POSITION;	
@@ -35,7 +34,7 @@ float2 main(VSOutput input) : SV_TARGET
 		for (float j = 0.0f; j < mKasfloat; j += 1.0f)
 		{
 			float2 uv_sample = float2(i, j) * uv_pixel_diff;
-			float2 velocity = VelocityTexture.Sample(nearestSampler, uv_pixel + uv_sample);
+			float2 velocity = VelocityTexture.Sample(nearestSamplerBorder, uv_pixel + uv_sample);
 			tile_max = vmax(velocity, tile_max);
 		}
 	}

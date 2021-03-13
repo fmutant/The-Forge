@@ -79,7 +79,7 @@ struct UniformCamData
 
 constexpr float cMotionBlurK = 15.0f;
 constexpr float cMotionBlurExposureTime = 0.5f; //of frame
-constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
+constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SFLOAT;
 struct UniformMotionBlurData
 {
 	vec4 mConsts; // x -> k, y -> 1.0f / k, z -> 0.5f * exposure time * frame rate
@@ -404,8 +404,8 @@ Pipeline* pPipelinePostProc = NULL;
 
 Sampler* pSamplerBilinear = NULL;
 Sampler* pSamplerLinear = NULL;
-
 Sampler* pSamplerNearest = NULL;
+
 Sampler* pSamplerNearestBorder = nullptr;
 
 uint32_t gFrameIndex = 0;
@@ -577,8 +577,8 @@ public:
 
 		SamplerDesc nearestBorderSamplerDesc = { FILTER_NEAREST,      FILTER_NEAREST,      MIPMAP_MODE_NEAREST,
 										  ADDRESS_MODE_CLAMP_TO_BORDER, ADDRESS_MODE_CLAMP_TO_BORDER, ADDRESS_MODE_CLAMP_TO_BORDER };
-		addSampler(pRenderer, &nearstSamplerDesc, &pSamplerNearestBorder);
-
+		addSampler(pRenderer, &nearestBorderSamplerDesc, &pSamplerNearestBorder);
+		
 		// GBuffer
 		char totalImagesShaderMacroBuffer[5] = {};
 		sprintf(totalImagesShaderMacroBuffer, "%i", TOTAL_IMGS);
@@ -660,11 +660,11 @@ public:
 				MotionBlurTileMaxShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
 				MotionBlurTileMaxShaderDesc.mStages[1] = { "MotionBlurTileMax.frag", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurTileMaxShaderDesc, &pMotionBlurTileMaxShader);
-				const char* pStaticSamplerforTileMaxNames[] = { "nearestSampler", "bilinearSampler" };
-				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearestBorder, pSamplerBilinear };
+				const char* pStaticSamplerforTileMaxNames[] = { "nearestSamplerBorder" };
+				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearestBorder };
 
 				RootSignatureDesc MotionBlurTileMaxRootDesc = { &pMotionBlurTileMaxShader, 1 };
-				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 2;
+				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 1;
 				MotionBlurTileMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforTileMaxNames;
 				MotionBlurTileMaxRootDesc.ppStaticSamplers = pStaticSamplersforTileMax;
 				addRootSignature(pRenderer, &MotionBlurTileMaxRootDesc, &pMotionBlurTileMaxRootSignature);
@@ -674,11 +674,11 @@ public:
 				MotionBlurNeighborMaxShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
 				MotionBlurNeighborMaxShaderDesc.mStages[1] = { "MotionBlurNeighborMax.frag", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurNeighborMaxShaderDesc, &pMotionBlurNeighborMaxShader);
-				const char* pStaticSamplerforNeighborMaxNames[] = { "nearestSampler", "bilinearSampler" };
-				Sampler*    pStaticSamplersforNeighborMax[] = { pSamplerNearestBorder, pSamplerBilinear };
+				const char* pStaticSamplerforNeighborMaxNames[] = { "nearestSamplerBorder" };
+				Sampler*    pStaticSamplersforNeighborMax[] = { pSamplerNearestBorder };
 
 				RootSignatureDesc MotionBlurNeighborMaxRootDesc = { &pMotionBlurNeighborMaxShader, 1 };
-				MotionBlurNeighborMaxRootDesc.mStaticSamplerCount = 2;
+				MotionBlurNeighborMaxRootDesc.mStaticSamplerCount = 1;
 				MotionBlurNeighborMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforNeighborMaxNames;
 				MotionBlurNeighborMaxRootDesc.ppStaticSamplers = pStaticSamplersforNeighborMax;
 				addRootSignature(pRenderer, &MotionBlurNeighborMaxRootDesc, &pMotionBlurNeighborMaxRootSignature);
@@ -688,11 +688,11 @@ public:
 				MotionBlurReconstructShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
 				MotionBlurReconstructShaderDesc.mStages[1] = { "MotionBlurReconstruct.frag", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurReconstructShaderDesc, &pMotionBlurReconstructShader);
-				const char* pStaticSamplerforReconstructNames[] = { "nearestSampler", "bilinearSampler" };
-				Sampler*    pStaticSamplersforReconstruct[] = { pSamplerNearestBorder, pSamplerBilinear };
+				const char* pStaticSamplerforReconstructNames[] = { "nearestSamplerBorder" };
+				Sampler*    pStaticSamplersforReconstruct[] = { pSamplerNearestBorder };
 
 				RootSignatureDesc MotionBlurReconstructRootDesc = { &pMotionBlurReconstructShader, 1 };
-				MotionBlurReconstructRootDesc.mStaticSamplerCount = 2;
+				MotionBlurReconstructRootDesc.mStaticSamplerCount = 1;
 				MotionBlurReconstructRootDesc.ppStaticSamplerNames = pStaticSamplerforReconstructNames;
 				MotionBlurReconstructRootDesc.ppStaticSamplers = pStaticSamplersforReconstruct;
 				addRootSignature(pRenderer, &MotionBlurReconstructRootDesc, &pMotionBlurReconstructRootSignature);
