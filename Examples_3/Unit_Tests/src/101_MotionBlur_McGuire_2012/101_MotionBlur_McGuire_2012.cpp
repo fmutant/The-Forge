@@ -325,7 +325,7 @@ DescriptorSet* pDescriptorSetSkybox[2] = { NULL };
 Shader*        pPPR_HolePatchingShader = NULL;
 RootSignature* pPPR_HolePatchingRootSignature = NULL;
 Pipeline*      pPPR_HolePatchingPipeline = NULL;
-DescriptorSet* pDescriptorSetPPR__HolePatching[1] = { NULL };
+DescriptorSet* pDescriptorSetPPR__HolePatching[1] = { nullptr };
 
 Buffer* pScreenQuadVertexBuffer = NULL;
 
@@ -444,6 +444,44 @@ void RunScript()
 {
 	gAppUI.RunTestScript(gTestScripts[gCurrentScriptIndex]);
 }
+
+const char* gViewRTNames[] = {
+	"Albedo",
+	"Normal",
+	"Specular",
+	"Velocity",
+	"BRDF",
+	"TileMax",
+	"NeighborMax",
+	"MotionBlur",
+};
+uint32_t gViewRTIndices[] = {
+	0,
+	1,
+	2,
+	3,
+	4,
+	5,
+	6,
+	7,
+};
+RenderTarget** gViewRTs[][2] = {
+	{ &pRenderTargetDeferredPass[0][0], &pRenderTargetDeferredPass[1][0] },
+	{ &pRenderTargetDeferredPass[0][1], &pRenderTargetDeferredPass[1][1] },
+	{ &pRenderTargetDeferredPass[0][2], &pRenderTargetDeferredPass[1][2] },
+	{ &pRenderTargetDeferredPass[0][3], &pRenderTargetDeferredPass[1][3] },
+	{ &pSceneBuffer, &pSceneBuffer },
+	{ &pTileMaxBuffer, &pTileMaxBuffer },
+	{ &pNeighborMaxBuffer, &pNeighborMaxBuffer },
+	{ &pMotionBlurredBuffer, &pMotionBlurredBuffer },
+};
+uint32_t gViewRTIndex = 4;
+RenderTarget* gViewRT = nullptr;
+void ViewRT()
+{
+	gViewRT = *gViewRTs[gViewRTIndex][gFrameFlipFlop];
+}
+
 
 class MotionBlurMcGuire2012 : public IApp
 {
@@ -686,7 +724,7 @@ public:
 		setDesc = { pRootSigBRDF, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetBRDF[1]);
 		// PPR Hole Patching
-		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetPPR__HolePatching[0]);
 		//Motion blur
 		{
@@ -914,12 +952,19 @@ public:
 #if !defined(TARGET_IOS)
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
+		DropdownWidget ddViewRendertarget("View Renderarget", &gViewRTIndex, gViewRTNames, gViewRTIndices, sizeof(gViewRTNames) / sizeof(gViewRTNames[0]));
+		ddViewRendertarget.pOnEdited = ViewRT;
+		pGui->AddWidget(ddViewRendertarget);
 
+		//ButtonWidget bRunScript("Run");
+		//bRunScript.pOnEdited = RunScript;
+		/*
 		DropdownWidget ddTestScripts("Test Scripts", &gCurrentScriptIndex, gTestScripts, gScriptIndexes, sizeof(gTestScripts) / sizeof(gTestScripts[0]));
 		ButtonWidget bRunScript("Run");
 		bRunScript.pOnEdited = RunScript;
 		pGui->AddWidget(ddTestScripts);
 		pGui->AddWidget(bRunScript);
+		*/
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1516,6 +1561,8 @@ public:
 			return false;
 		if (!addMotionBlurredBuffer())
 			return false;
+
+		ViewRT();
 
 		if (!gAppUI.Load(pSwapChain->ppRenderTargets))
 			return false;
@@ -2129,7 +2176,15 @@ public:
 		cmdSetScissor(cmd, 0, 0, pRenderTarget->mWidth, pRenderTarget->mHeight);
 
 		cmdBindPipeline(cmd, pPPR_HolePatchingPipeline);
-		cmdBindDescriptorSet(cmd, 0, pDescriptorSetPPR__HolePatching[0]);
+
+		{
+			DescriptorData PPR_HolePatchingParams[1] = {};
+			PPR_HolePatchingParams[0].pName = "SceneTexture";
+			PPR_HolePatchingParams[0].ppTextures = &gViewRT->pTexture;
+			updateDescriptorSet(pRenderer, gFrameIndex, pDescriptorSetPPR__HolePatching[0], 1, PPR_HolePatchingParams);
+		}
+
+		cmdBindDescriptorSet(cmd, gFrameIndex, pDescriptorSetPPR__HolePatching[0]);
 		cmdBindVertexBuffer(cmd, 1, &pScreenQuadVertexBuffer, &quadStride, NULL);
 		cmdDraw(cmd, 3, 0);
 
@@ -2250,14 +2305,6 @@ public:
 				updateDescriptorSet(pRenderer, i, pDescriptorSetBRDF[1], 1, BRDFParams);
 			}
 		}
-		// PPR Hole Patching
-		{
-			DescriptorData PPR_HolePatchingParams[1] = {};
-			PPR_HolePatchingParams[0].pName = "SceneTexture";
-			PPR_HolePatchingParams[0].ppTextures = &pSceneBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetPPR__HolePatching[0], 1, PPR_HolePatchingParams);
-		}
-
 		// Motion blur TileMax
 		{
 			DescriptorData MotionBlurTileMaxParams[2] = {};

@@ -24,7 +24,7 @@
 
 #define FLT_MAX  3.402823466e+38F
 
-Texture2D SceneTexture : register(t1);
+Texture2D SceneTexture : register(t1, UPDATE_FREQ_PER_FRAME);
 
 SamplerState nearestSampler : register(s4);
 SamplerState bilinearSampler : register(s5);
