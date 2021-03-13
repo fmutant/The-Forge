@@ -73,9 +73,12 @@ struct UniformCamData
 	mat4 mProjectView;
 	mat4 mPrevProjectView;
 	vec3 mCamPos;
+
+	vec4 mMotionBlurParams;
 };
 
 constexpr float cMotionBlurK = 15.0f;
+constexpr float cMotionBlurExposureTime = 0.5f; //of frame
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
 {
@@ -518,7 +521,7 @@ public:
 
 		GuiDesc guiDesc = {};
 		guiDesc.mStartPosition = vec2(mSettings.mWidth * 0.01f, mSettings.mHeight * 0.25f);
-		pGui = gAppUI.AddGuiComponent("Clean Sponza", &guiDesc);
+		pGui = gAppUI.AddGuiComponent("MotionBlurMcGuire2012", &guiDesc);
 
 		initProfiler();
 		initProfilerUI(&gAppUI, mSettings.mWidth, mSettings.mHeight);
@@ -1770,7 +1773,14 @@ public:
 		gUniformDataCamera.mProjectView = ViewProjMat;
 		gUniformDataCamera.mCamPos = pCameraController->getViewPosition();
 
-		gUniformDataMotionBlur.mConsts = vec4(cMotionBlurK, 1.0f / cMotionBlurK, 0.5f * 0.5f * 60.0f, 0.5f * 0.5f * (1.0f / 60.0f));
+		gUniformDataCamera.mMotionBlurParams = vec4(
+			0.5f * (cMotionBlurExposureTime * deltaTime),
+			cMotionBlurK,
+			static_cast<float>(mSettings.mWidth),
+			static_cast<float>(mSettings.mHeight)
+		);
+
+		gUniformDataMotionBlur.mConsts = vec4(cMotionBlurK, 1.0f / cMotionBlurK, 0.5f * cMotionBlurExposureTime * deltaTime, 0.0f);
 		gUniformDataMotionBlur.mWidth = static_cast<float>(mSettings.mWidth);
 		gUniformDataMotionBlur.mHeight = static_cast<float>(mSettings.mHeight);
 		gUniformDataMotionBlur.mKasfloat = cMotionBlurK;
