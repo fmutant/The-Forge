@@ -75,7 +75,7 @@ struct UniformCamData
 	vec3 mCamPos;
 };
 
-constexpr float cMotionBlurK = 15;
+constexpr float cMotionBlurK = 15.0f;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
 {
@@ -382,7 +382,7 @@ UniformCamData gUniformDataCamera;
 
 UniformCamData gUniformDataSky;
 
-Buffer*				  pBufferUniformMotionBlur[gImageCount] = { nullptr };
+Buffer*				  pBufferUniformMotionBlur = { nullptr };
 UniformMotionBlurData gUniformDataMotionBlur;
 
 Buffer*                pBufferUniformExtendedCamera[gImageCount] = { NULL };
@@ -795,9 +795,9 @@ public:
 		ubMotionBlurDesc.mDesc.mSize = sizeof(UniformMotionBlurData);
 		ubMotionBlurDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
 		ubMotionBlurDesc.pData = nullptr;
-		for (uint32_t i = 0; i < gImageCount; ++i)
+		//for (uint32_t i = 0; i < gImageCount; ++i)
 		{
-			ubMotionBlurDesc.ppBuffer = &pBufferUniformMotionBlur[i];
+			ubMotionBlurDesc.ppBuffer = &pBufferUniformMotionBlur;
 			addResource(&ubMotionBlurDesc, nullptr);
 		}
 
@@ -1079,8 +1079,8 @@ public:
 			removeResource(pBufferUniformExtendedCamera[i]);
 			removeResource(pBufferUniformCameraSky[i]);
 			removeResource(pBufferUniformCamera[i]);
-			removeResource(pBufferUniformMotionBlur[i]);
 		}
+		removeResource(pBufferUniformMotionBlur);
 
 		removeResource(pBufferUniformLights);
 		removeResource(pBufferUniformDirectionalLights);
@@ -1817,7 +1817,7 @@ public:
 
 		resetCmdPool(pRenderer, pCmdPools[gFrameIndex]);
 
-		BufferUpdateDesc motionBlurUpdateDesc = { pBufferUniformMotionBlur[gFrameIndex] };
+		BufferUpdateDesc motionBlurUpdateDesc = { pBufferUniformMotionBlur };
 		beginUpdateResource(&motionBlurUpdateDesc);
 		*(UniformMotionBlurData*)motionBlurUpdateDesc.pMappedData = gUniformDataMotionBlur;
 		endUpdateResource(&motionBlurUpdateDesc, nullptr);
@@ -2054,7 +2054,27 @@ public:
 		//#endif
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
-		cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
+		//cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
+
+		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "MotionBlur");
+		{
+			cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileMax");
+			rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+			cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+			loadActions = {};
+			loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
+			loadActions.mClearColorValues[0] = pTileMaxBuffer->mClearValue;
+			cmdBindRenderTargets(cmd, 1, &pTileMaxBuffer, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+			cmdSetViewport(cmd, 0.0f, 0.0f, (float)pTileMaxBuffer->mWidth, (float)pTileMaxBuffer->mHeight, 0.0f, 1.0f);
+			cmdSetScissor(cmd, 0, 0, pTileMaxBuffer->mWidth, pTileMaxBuffer->mHeight);
+			cmdBindPipeline(cmd, pMotionBlurTileMaxPipeline);
+			cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurTileMax[0]);
+			cmdDraw(cmd, 3, 0);
+			rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+			cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+			cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+		}
+		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Apply Reflections");
 
@@ -2205,10 +2225,16 @@ public:
 
 		// Motion blur TileMax
 		{
-			DescriptorData MotionBlurTileMaxParams[1] = {};
-			MotionBlurTileMaxParams[0].pName = "VelocityTexture";
-			MotionBlurTileMaxParams[0].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 1, MotionBlurTileMaxParams);
+			DescriptorData MotionBlurTileMaxParams[2] = {};
+			//for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				MotionBlurTileMaxParams[0].pName = "cbMotionBlurConsts";
+				MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
+				//updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 1, MotionBlurTileMaxParams);
+			}
+			MotionBlurTileMaxParams[1].pName = "VelocityTexture";
+			MotionBlurTileMaxParams[1].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 2, MotionBlurTileMaxParams);
 		}
 		//Motion blur NeighborMax
 		{

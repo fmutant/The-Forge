@@ -25,15 +25,18 @@ float2 vmax(float2 v0, float2 v1)
 
 float2 main(VSOutput input) : SV_TARGET
 {
-	float2 texcoord_tile = input.texcoord;
-	float2 texcoord_velocity = texcoord_tile * mKasfloat;
-	uint k = floor(mConsts.x);
+	float2 uv_tile = input.texcoord;
+	float2 uv_pixel = uv_tile / mKasfloat;
+	float2 uv_pixel_diff = float2(1.0f / mWidth, 1.0f / mHeight);
+	
 	float2 tile_max = float2(0.0f, 0.0f);
-	for (uint i = 0; i < mKasuint; ++i)
+	for (float i = 0.0f; i < mKasfloat; i += 1.0f)
 	{
-		for (uint j = 0; j < mKasuint; ++j)
+		for (float j = 0.0f; j < mKasfloat; j += 1.0f)
 		{
-			tile_max = vmax(VelocityTexture.Sample(nearestSampler, texcoord_velocity + float2(i, j)), tile_max);
+			float2 uv_sample = float2(i, j) * uv_pixel_diff;
+			float2 velocity = VelocityTexture.Sample(nearestSampler, uv_pixel + uv_sample);
+			tile_max = vmax(velocity, tile_max);
 		}
 	}
 	return tile_max;
