@@ -29,10 +29,6 @@ cbuffer cbCamera : register(b0, UPDATE_FREQ_PER_FRAME)
 	float3 camPos;
 	
 	float4 motionBlurParams;
-	//float exposureTimePerFramerate;
-	//float tileSize;
-	//float framewidth;
-	//float frameheight;
 }
 
 cbuffer cbObject : register(b1, UPDATE_FREQ_PER_DRAW)
@@ -152,12 +148,13 @@ PSOut main(PsIn input) : SV_TARGET
 	Out.albedo = float4(albedo, alpha);
 	Out.normal = float4(N, _metalness);
 	Out.specular = float4(_roughness, ao, input.uv);
-	//Out.motion  = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
 
-	float2 q = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
-	q *= motionBlurParams.y;
-	float len_q = length(q);
-	Out.motion = q * (max(0.5f * motionBlurParams.zw, min(len_q, motionBlurParams.x))) / (len_q + 1e-6);
+	float2 qx = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
+	qx *= motionBlurParams.y;
+	float len_qx = length(qx);
+	float weight = max(0.5f, min(len_qx, motionBlurParams.x));
+	weight /= len_qx + 0.001f;
+	Out.motion = qx * weight;
 
 	return Out;
 }
