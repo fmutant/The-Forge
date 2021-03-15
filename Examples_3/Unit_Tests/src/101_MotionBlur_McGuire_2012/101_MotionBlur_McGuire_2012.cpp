@@ -1875,7 +1875,7 @@ public:
 
 		gUniformDataCamera.mMotionBlurParams = gUniformDataMotionBlur.mConsts = vec4(
 			cMotionBlurK,
-			0.5f * (gMotionBlurExposureTime * deltaTime),
+			0.5f * (gMotionBlurExposureTime / deltaTime),
 			1.0f / static_cast<float>(mSettings.mWidth),
 			1.0f / static_cast<float>(mSettings.mHeight)
 		);
