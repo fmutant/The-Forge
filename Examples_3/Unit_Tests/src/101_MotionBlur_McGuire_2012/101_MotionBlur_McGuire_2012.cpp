@@ -75,14 +75,16 @@ struct UniformCamData
 	vec3 mCamPos;
 
 	vec4 mMotionBlurParams;
+	float mFarOverNear;
 };
 
 constexpr float cMotionBlurK = 15.0f;
-constexpr float cMotionBlurExposureTime = 0.5f; //of frame
-constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SFLOAT;
+float gMotionBlurExposureTime = 0.5f; //of frame
+constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_UNORM;
 struct UniformMotionBlurData
 {
 	vec4 mConsts; // x -> k, y -> 0.5f * exposure time * frame rate, z -> 1.0f / width, w -> 1.0f / height
+	vec4 mReconstructParams; // x -> Za, y -> Zb, z -> Z_SOFT_EXTENT, w -> Samples count
 };
 
 // Have a uniform for extended camera data
@@ -300,6 +302,7 @@ RenderTarget* pVelocityBuffer = nullptr;
 RenderTarget* pTileMaxBuffer = nullptr;
 RenderTarget* pNeighborMaxBuffer = nullptr;
 RenderTarget* pMotionBlurredBuffer = nullptr;
+RenderTarget* pDepthLinearBuffer = nullptr;
 
 RenderTarget* pDepthBuffer = NULL;
 Fence*        pRenderCompleteFences[gImageCount] = { NULL };
@@ -328,6 +331,11 @@ Shader*        pShaderGbuffers = NULL;
 Pipeline*      pPipelineGbuffers = NULL;
 RootSignature* pRootSigGbuffers = NULL;
 DescriptorSet* pDescriptorSetGbuffers[3] = { NULL };
+
+Shader*		   pLinearizeDepthShader = nullptr;
+RootSignature* pLinearizeDepthRootSignature = nullptr;
+Pipeline*	   pLinearizeDepthPipeline = nullptr;
+DescriptorSet* pLinearizeDepthDescriptor[2] = { nullptr };
 
 Shader*        pMotionBlurTileMaxShader = nullptr;
 RootSignature* pMotionBlurTileMaxRootSignature = nullptr;
@@ -647,7 +655,22 @@ public:
 		PPR_HolePatchingRootDesc.ppStaticSamplerNames = pStaticSamplerforHolePatchingNames;
 		PPR_HolePatchingRootDesc.ppStaticSamplers = pStaticSamplersforHolePatching;
 		addRootSignature(pRenderer, &PPR_HolePatchingRootDesc, &pPPR_HolePatchingRootSignature);
+		{
+			//linearize depth
+			ShaderLoadDesc linearizeDepthShaderDesc = {};
+			linearizeDepthShaderDesc.mStages[0] = { "FullscreenTriangle.vert", NULL, 0 };
+			linearizeDepthShaderDesc.mStages[1] = { "linearizeDepth.frag", NULL, 0 };
 
+			addShader(pRenderer, &linearizeDepthShaderDesc, &pLinearizeDepthShader);
+
+			const char* pStaticSamplerforLinearizeDepthNames[] = { "nearestSamplerBorder" };
+			Sampler*    pStaticSamplersforLinearizeDepth[] = { pSamplerNearestBorder };
+			RootSignatureDesc LinearizeDepthRootDesc = { &pLinearizeDepthShader, 1 };
+			LinearizeDepthRootDesc.mStaticSamplerCount = 1;
+			LinearizeDepthRootDesc.ppStaticSamplerNames = pStaticSamplerforLinearizeDepthNames;
+			LinearizeDepthRootDesc.ppStaticSamplers = pStaticSamplersforLinearizeDepth;
+			addRootSignature(pRenderer, &LinearizeDepthRootDesc, &pLinearizeDepthRootSignature);
+		}
 		{
 			// Motion Blur
 			{
@@ -721,6 +744,13 @@ public:
 		// PPR Hole Patching
 		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetPPR__HolePatching[0]);
+		//Linearize depth
+		{
+			setDesc = { pLinearizeDepthRootSignature, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc, &pLinearizeDepthDescriptor[0]);
+			setDesc = { pLinearizeDepthRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pLinearizeDepthDescriptor[1]);
+		}
 		//Motion blur
 		{
 			setDesc = { pMotionBlurTileMaxRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
@@ -947,6 +977,7 @@ public:
 #if !defined(TARGET_IOS)
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
+		pGui->AddWidget(SliderFloatWidget("Exposure time", &gMotionBlurExposureTime, 0.0f, 1.0f));
 		DropdownWidget ddViewRendertarget("View Renderarget", &gViewRTIndex, gViewRTNames, gViewRTIndices, sizeof(gViewRTNames) / sizeof(gViewRTNames[0]));
 		ddViewRendertarget.pOnEdited = ViewRT;
 		pGui->AddWidget(ddViewRendertarget);
@@ -1100,7 +1131,8 @@ public:
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
-
+		removeDescriptorSet(pRenderer, pLinearizeDepthDescriptor[0]);
+		removeDescriptorSet(pRenderer, pLinearizeDepthDescriptor[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurTileMax[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurNeighborMax[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurReconstruct[0]);
@@ -1144,6 +1176,7 @@ public:
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
 		removeShader(pRenderer, pShaderGbuffers);
+		removeShader(pRenderer, pLinearizeDepthShader);
 		removeShader(pRenderer, pMotionBlurTileMaxShader);
 		removeShader(pRenderer, pMotionBlurNeighborMaxShader);
 		removeShader(pRenderer, pMotionBlurReconstructShader);
@@ -1156,6 +1189,7 @@ public:
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
+		removeRootSignature(pRenderer, pLinearizeDepthRootSignature);
 		removeRootSignature(pRenderer, pMotionBlurTileMaxRootSignature);
 		removeRootSignature(pRenderer, pMotionBlurNeighborMaxRootSignature);
 		removeRootSignature(pRenderer, pMotionBlurReconstructRootSignature);
@@ -1548,6 +1582,8 @@ public:
 		if (!addDepthBuffer())
 			return false;
 
+		if (!addDepthLinearBuffer())
+			return false;
 		if (!addVelocityBuffer())
 			return false;
 		if (!addTileMaxBuffer())
@@ -1689,6 +1725,23 @@ public:
 			pipelineSettings.mRenderTargetCount = 1;
 			pipelineSettings.pDepthState = nullptr;
 
+			pipelineSettings.pColorFormats = &pDepthLinearBuffer->mFormat;
+			pipelineSettings.mSampleCount = pDepthLinearBuffer->mSampleCount;
+			pipelineSettings.mSampleQuality = pDepthLinearBuffer->mSampleQuality;
+
+			pipelineSettings.mDepthStencilFormat = TinyImageFormat_UNDEFINED;
+			pipelineSettings.pRootSignature = pLinearizeDepthRootSignature;
+			pipelineSettings.pShaderProgram = pLinearizeDepthShader;
+			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
+			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pLinearizeDepthPipeline);
+		}
+		{
+			pipelineSettings = { 0 };
+			pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			pipelineSettings.mRenderTargetCount = 1;
+			pipelineSettings.pDepthState = nullptr;
+
 			pipelineSettings.pColorFormats = &pTileMaxBuffer->mFormat;
 			pipelineSettings.mSampleCount = pTileMaxBuffer->mSampleCount;
 			pipelineSettings.mSampleQuality = pTileMaxBuffer->mSampleQuality;
@@ -1755,12 +1808,14 @@ public:
 		removePipeline(pRenderer, pSkyboxPipeline);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
+		removePipeline(pRenderer, pLinearizeDepthPipeline);
 		removePipeline(pRenderer, pMotionBlurTileMaxPipeline);
 		removePipeline(pRenderer, pMotionBlurNeighborMaxPipeline);
 		removePipeline(pRenderer, pMotionBlurReconstructPipeline);
 
 		removeRenderTarget(pRenderer, pDepthBuffer);
 		removeRenderTarget(pRenderer, pSceneBuffer);
+		removeRenderTarget(pRenderer, pDepthLinearBuffer);
 
 		for (uint32_t i = 0; i < GBuffers::Count; ++i)
 			removeRenderTarget(pRenderer, pRenderTargetDeferredPass[0][i]);
@@ -1804,22 +1859,32 @@ public:
 		pCameraController->update(deltaTime);
 
 		// Update camera
+		static constexpr float cNear = 0.1f;
+		static constexpr float cFar = 1000.0f;
 		mat4        viewMat = pCameraController->getViewMatrix();
 		const float aspectInverse = (float)mSettings.mHeight / (float)mSettings.mWidth;
 		const float horizontal_fov = PI / 2.0f;
-		mat4        projMat = mat4::perspective(horizontal_fov, aspectInverse, 0.1f, 1000.0f);
+		mat4        projMat = mat4::perspective(horizontal_fov, aspectInverse, cNear, cFar);
 
 		mat4 ViewProjMat = projMat * viewMat;
 
 		gUniformDataCamera.mPrevProjectView = gUniformDataCamera.mProjectView;
 		gUniformDataCamera.mProjectView = ViewProjMat;
+		gUniformDataCamera.mFarOverNear = cFar / cNear;
 		gUniformDataCamera.mCamPos = pCameraController->getViewPosition();
 
 		gUniformDataCamera.mMotionBlurParams = gUniformDataMotionBlur.mConsts = vec4(
 			cMotionBlurK,
-			0.5f * (cMotionBlurExposureTime * deltaTime),
+			0.5f * (gMotionBlurExposureTime * deltaTime),
 			1.0f / static_cast<float>(mSettings.mWidth),
 			1.0f / static_cast<float>(mSettings.mHeight)
+		);
+		
+		gUniformDataMotionBlur.mReconstructParams = vec4(
+			cNear,
+			cFar,
+			0.1f,
+			15.0f
 		);
 
 		viewMat.setTranslation(vec3(0));
@@ -2106,7 +2171,29 @@ public:
 		//#endif
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
-		//cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
+		cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
+
+		{
+			cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Linearize Depth");
+			rtBarriers[0] = { pDepthLinearBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+			cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 1, rtBarriers);
+
+			loadActions = {};
+			loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
+			loadActions.mClearColorValues[0] = pDepthLinearBuffer->mClearValue;
+			cmdBindRenderTargets(cmd, 1, &pDepthLinearBuffer, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+			cmdSetViewport(cmd, 0.0f, 0.0f, (float)pDepthLinearBuffer->mWidth, (float)pDepthLinearBuffer->mHeight, 0.0f, 1.0f);
+			cmdSetScissor(cmd, 0, 0, pDepthLinearBuffer->mWidth, pDepthLinearBuffer->mHeight);
+			cmdBindPipeline(cmd, pLinearizeDepthPipeline);
+			//cmdBindDescriptorSet(cmd, 0, pLinearizeDepthDescriptor[0]);
+			cmdBindDescriptorSet(cmd, gFrameIndex, pLinearizeDepthDescriptor[0]);
+			cmdBindDescriptorSet(cmd, 0, pLinearizeDepthDescriptor[1]);
+			cmdDraw(cmd, 3, 0);
+
+			rtBarriers[0] = { pDepthLinearBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+			cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 1, rtBarriers);
+			cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+		}
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "MotionBlur");
 		{
@@ -2164,6 +2251,8 @@ public:
 			}
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+
+		cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Apply Reflections");
 
@@ -2311,6 +2400,20 @@ public:
 				updateDescriptorSet(pRenderer, i, pDescriptorSetBRDF[1], 1, BRDFParams);
 			}
 		}
+		// Linearize depth
+		{
+			DescriptorData LinearizeDepthParams[1] = {};
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				LinearizeDepthParams[0] = {};
+				LinearizeDepthParams[0].pName = "cbCamera";
+				LinearizeDepthParams[0].ppBuffers = &pBufferUniformCamera[i];
+				updateDescriptorSet(pRenderer, i, pLinearizeDepthDescriptor[0], 1, LinearizeDepthParams);
+			}
+			LinearizeDepthParams[0].pName = "DepthTexture";
+			LinearizeDepthParams[0].ppTextures = &pDepthBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pLinearizeDepthDescriptor[1], 1, LinearizeDepthParams);
+		}
 		// Motion blur TileMax
 		{
 			DescriptorData MotionBlurTileMaxParams[2] = {};
@@ -2337,14 +2440,14 @@ public:
 			MotionBlurReconstructParams[1].pName = "SceneTexture";
 			MotionBlurReconstructParams[1].ppTextures = &pSceneBuffer->pTexture;
 			MotionBlurReconstructParams[2].pName = "DepthTexture";
-			MotionBlurReconstructParams[2].ppTextures = &pDepthBuffer->pTexture;
+			MotionBlurReconstructParams[2].ppTextures = &pDepthLinearBuffer->pTexture;
 			MotionBlurReconstructParams[3].pName = "VelocityTexture";
 			MotionBlurReconstructParams[3].ppTextures = &pVelocityBuffer->pTexture;
-			MotionBlurReconstructParams[4].pName = "TileMaxTexture";
-			MotionBlurReconstructParams[4].ppTextures = &pTileMaxBuffer->pTexture;
-			MotionBlurReconstructParams[5].pName = "NeighborMaxTexture";
-			MotionBlurReconstructParams[5].ppTextures = &pNeighborMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurReconstruct[0], 6, MotionBlurReconstructParams);
+			/*MotionBlurReconstructParams[4].pName = "TileMaxTexture";
+			MotionBlurReconstructParams[4].ppTextures = &pTileMaxBuffer->pTexture;*/
+			MotionBlurReconstructParams[4].pName = "NeighborMaxTexture";
+			MotionBlurReconstructParams[4].ppTextures = &pNeighborMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurReconstruct[0], 5, MotionBlurReconstructParams);
 		}
 	}
 
@@ -2472,6 +2575,26 @@ public:
 		addRenderTarget(pRenderer, &depthRT, &pDepthBuffer);
 
 		return pDepthBuffer != NULL;
+	}
+
+	bool addDepthLinearBuffer()
+	{
+		// Add depth buffer
+		RenderTargetDesc depthLinearRT = {};
+		depthLinearRT.mArraySize = 1;
+		depthLinearRT.mClearValue = { { 1.0f, 0 } };
+		depthLinearRT.mDepth = 1;
+		depthLinearRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
+		depthLinearRT.mFormat = TinyImageFormat_R32_SFLOAT;
+		depthLinearRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		depthLinearRT.mWidth = mSettings.mWidth;
+		depthLinearRT.mHeight = mSettings.mHeight;
+		depthLinearRT.mSampleCount = SAMPLE_COUNT_1;
+		depthLinearRT.mSampleQuality = 0;
+		depthLinearRT.pName = "Depth Linear Buffer";
+		addRenderTarget(pRenderer, &depthLinearRT, &pDepthLinearBuffer);
+
+		return pDepthLinearBuffer != NULL;
 	}
 
 	bool addVelocityBuffer()
