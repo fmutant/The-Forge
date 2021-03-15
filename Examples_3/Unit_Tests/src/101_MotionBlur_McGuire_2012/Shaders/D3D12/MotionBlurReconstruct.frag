@@ -34,7 +34,7 @@ float cylinder(float2 uv0, float2 uv1, float2 V)
 }
 float softDepthCompare(float Za, float Zb)
 {
-	return saturate(1.0f - (Za - Zb) / params.z);
+	return saturate(1.0f - (Za - Zb) / params.w);
 }
 
 void Accumulate(float2 uv0, float t, float2 Vn, float2 Vx, float Dx, inout float4 sum, inout float weight)
@@ -71,13 +71,13 @@ float4 main(VSOutput input) : SV_TARGET
 	static const float SamplesCount = 15.0f;
 	for (float i0 = 0.0f, e0 = SamplesCount * 0.5f - 0.5f; i0 < e0; i0 += 1.0f)
 	{
-		float t = lerp(-1.0f, 1.0f, (i0 + j + 1.0f) / (SamplesCount + 1.0f));
+		float t = lerp(-params.z, params.z, (i0 + j + 1.0f) / (SamplesCount + 1.0f));
 		Accumulate(uv0, t, Vn, Vx, Dx, sum, weight);
 	}
 
 	for (float i1 = ceil(SamplesCount * 0.5f), e1 = SamplesCount; i1 < e1; i1 += 1.0f)
 	{
-		float t = lerp(-1.0f, 1.0f, (i1 + j + 1.0f) / (SamplesCount + 1.0f));
+		float t = lerp(params.z, params.z, (i1 + j + 1.0f) / (SamplesCount + 1.0f));
 		Accumulate(uv0, t, Vn, Vx, Dx, sum, weight);
 	}
 
