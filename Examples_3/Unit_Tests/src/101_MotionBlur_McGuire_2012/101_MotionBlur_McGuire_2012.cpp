@@ -79,8 +79,8 @@ struct UniformCamData
 };
 
 constexpr float cMotionBlurK = 15.0f;
-float gMotionBlurExposureTime = 0.5f; //of frame
-float gMotionBlurPixelsCount = 1.0f;
+float gMotionBlurExposureTime = 0.75f; //of frame
+float gMotionBlurPixelsCount = 5.0f;
 float gMotionBlurSamplesCount = 15.0f;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
@@ -480,7 +480,7 @@ RenderTarget** gViewRTs[][2] = {
 	{ &pNeighborMaxBuffer, &pNeighborMaxBuffer },
 	{ &pMotionBlurredBuffer, &pMotionBlurredBuffer },
 };
-uint32_t gViewRTIndex = 4;
+uint32_t gViewRTIndex = 7;
 RenderTarget* gViewRT = nullptr;
 void ViewRT()
 {
