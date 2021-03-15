@@ -80,7 +80,7 @@ struct UniformCamData
 
 constexpr float cMotionBlurK = 15.0f;
 float gMotionBlurExposureTime = 0.5f; //of frame
-constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_UNORM;
+constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
 {
 	vec4 mConsts; // x -> k, y -> 0.5f * exposure time * frame rate, z -> 1.0f / width, w -> 1.0f / height
@@ -2513,7 +2513,7 @@ public:
 			if (i == 1 || i == 2)
 				deferredRTDesc.mFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
 			else if (i == 3)
-				deferredRTDesc.mFormat = TinyImageFormat_R16G16_SFLOAT;
+				deferredRTDesc.mFormat = cMotionBlurBufferFormat;
 			else
 				deferredRTDesc.mFormat = TinyImageFormat_R8G8B8A8_UNORM;
 
