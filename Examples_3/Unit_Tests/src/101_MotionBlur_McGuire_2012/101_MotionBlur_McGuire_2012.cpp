@@ -81,6 +81,7 @@ struct UniformCamData
 constexpr float cMotionBlurK = 15.0f;
 float gMotionBlurExposureTime = 0.5f; //of frame
 float gMotionBlurPixelsCount = 1.0f;
+float gMotionBlurSamplesCount = 15.0f;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
 {
@@ -980,6 +981,7 @@ public:
 #endif
 		pGui->AddWidget(SliderFloatWidget("Exposure time", &gMotionBlurExposureTime, 0.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Blur strength", &gMotionBlurPixelsCount, 1.0f, 5.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Blur samples", &gMotionBlurSamplesCount, 7.0f, 31.0f, 2.0f));
 		DropdownWidget ddViewRendertarget("View Renderarget", &gViewRTIndex, gViewRTNames, gViewRTIndices, sizeof(gViewRTNames) / sizeof(gViewRTNames[0]));
 		ddViewRendertarget.pOnEdited = ViewRT;
 		pGui->AddWidget(ddViewRendertarget);
@@ -1883,12 +1885,12 @@ public:
 		);
 		
 		gUniformDataMotionBlur.mReconstructParams = vec4(
-			cNear,
+			gMotionBlurSamplesCount,
 			cFar,
 			gMotionBlurPixelsCount,
 			0.1f
 		);
-
+		
 		viewMat.setTranslation(vec3(0));
 		gUniformDataSky = gUniformDataCamera;
 		gUniformDataSky.mProjectView = projMat * viewMat;
