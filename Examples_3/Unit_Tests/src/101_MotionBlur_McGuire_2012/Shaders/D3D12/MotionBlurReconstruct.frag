@@ -23,13 +23,13 @@ float random_half(float2 _st) {
         43758.5453123f)- 0.5f;
 }
 
-float cone(float2 uv0, float2 uv1, float vlen)
+float cone(float uvdiff, float vlen)
 {
-	return saturate(1.0f - length(uv0 - uv1) / vlen);
+	return saturate(1.0f - uvdiff / vlen);
 }
-float cylinder(float2 uv0, float2 uv1, float vlen)
+float cylinder(float uvdiff, float vlen)
 {
-	return 1.0f - smoothstep(0.95f * vlen, 1.05f * vlen, length(uv0 - uv1));
+	return 1.0f - smoothstep(0.95f * vlen, 1.05f * vlen, uvdiff);
 }
 float softDepthCompare(float Za, float Zb)
 {
@@ -39,7 +39,10 @@ float softDepthCompare(float Za, float Zb)
 
 void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout float4 sum, inout float weight)
 {
-	float2 uv1 = uv0 + (Vn * t + 0.5f) * consts.zw;
+	float2 diff = Vn * t + 0.5f;
+	diff *= consts.zw;
+	float2 uv1 = uv0 + diff;
+	float uvdiff = length(diff);
 	
 	float4 Cy = SceneTexture.Sample(nearestSamplerBorder, uv1);
 	float Dy = DepthTexture.Sample(nearestSamplerBorder, uv1);
@@ -48,9 +51,9 @@ void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout flo
 	
 	float2 Vy = VelocityTexture.Sample(nearestSamplerBorder, uv1);
 	float vylen = length(Vy);
-	float alpha = 	f * cone(uv1, uv0, vylen) +
-					b * cone(uv0, uv1, vxlen) +
-					2.0f * cylinder(uv1, uv0, vylen) * cylinder(uv0, uv1, vxlen);
+	float alpha = 	f * cone(uvdiff, vylen) +
+					b * cone(uvdiff, vxlen) +
+					2.0f * cylinder(uvdiff, vylen) * cylinder(uvdiff, vxlen);
 
 	weight += alpha;
 	sum += Cy * alpha;
