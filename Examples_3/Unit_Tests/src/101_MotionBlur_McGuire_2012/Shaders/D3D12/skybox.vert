@@ -29,6 +29,9 @@ cbuffer uniformBlock : register(b0, UPDATE_FREQ_PER_FRAME)
 	float4x4 projView;
 	float4x4 prevProjView;
 	float3 camPos;
+	
+	float4 motionBlurParams;
+	float4x4 invProj;
 }
 
 struct VSInput
