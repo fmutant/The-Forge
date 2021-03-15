@@ -39,7 +39,7 @@ float softDepthCompare(float Za, float Zb)
 
 void Accumulate(float2 uv0, float t, float2 Vn, float2 Vx, float Dx, inout float4 sum, inout float weight)
 {
-	float2 uv1 = uv0 + Vn * t + 0.5f;
+	float2 uv1 = uv0 + (Vn * t + 0.5f) * consts.zw;
 	
 	float4 Cy = SceneTexture.Sample(nearestSamplerBorder, uv1);
 	float Dy = DepthTexture.Sample(nearestSamplerBorder, uv1);
@@ -50,7 +50,7 @@ void Accumulate(float2 uv0, float t, float2 Vn, float2 Vx, float Dx, inout float
 	float alpha = 	f * cone(uv1, uv0, Vy) +
 					b * cone(uv0, uv1, Vx) +
 					2.0f * cylinder(uv1, uv0, Vy) * cylinder(uv0, uv1, Vx);
-	alpha *= 5.0f;
+
 	weight += alpha;
 	sum += Cy * alpha;
 }
