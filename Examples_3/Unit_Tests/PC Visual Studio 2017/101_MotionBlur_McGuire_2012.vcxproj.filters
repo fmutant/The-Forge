@@ -114,6 +114,9 @@
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\MotionBlurNeighborMax.comp">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\MotionBlurReconstruct.comp">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\101_MotionBlur_McGuire_2012\101_MotionBlur_McGuire_2012.cpp">
