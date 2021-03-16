@@ -82,6 +82,7 @@ constexpr float cMotionBlurK = 15.0f;
 float gMotionBlurExposureTime = 0.75f; //of frame
 float gMotionBlurPixelsCount = 5.0f;
 float gMotionBlurSamplesCount = 15.0f;
+bool gMotionBlurCompute = false;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
 {
@@ -342,17 +343,32 @@ DescriptorSet* pLinearizeDepthDescriptor[2] = { nullptr };
 Shader*        pMotionBlurTileMaxShader = nullptr;
 RootSignature* pMotionBlurTileMaxRootSignature = nullptr;
 Pipeline*      pMotionBlurTileMaxPipeline = nullptr;
-DescriptorSet* pDescriptorSetMotionBlurTileMax[1] = { nullptr };
+DescriptorSet* pMotionBlurTileMaxDescriptorSet[1] = { nullptr };
 
 Shader*        pMotionBlurNeighborMaxShader = nullptr;
 RootSignature* pMotionBlurNeighborMaxRootSignature = nullptr;
 Pipeline*      pMotionBlurNeighborMaxPipeline = nullptr;
-DescriptorSet* pDescriptorSetMotionBlurNeighborMax[1] = { nullptr };
+DescriptorSet* pMotionBlurNeighborMaxDescriptorSet[1] = { nullptr };
 
 Shader*        pMotionBlurReconstructShader = nullptr;
 RootSignature* pMotionBlurReconstructRootSignature = nullptr;
 Pipeline*      pMotionBlurReconstructPipeline = nullptr;
-DescriptorSet* pDescriptorSetMotionBlurReconstruct[1] = { nullptr };
+DescriptorSet* pMotionBlurReconstructDescriptorSet[1] = { nullptr };
+
+Shader*        pMotionBlurTileMaxShaderCompute = nullptr;
+RootSignature* pMotionBlurTileMaxRootSignatureCompute = nullptr;
+Pipeline*      pMotionBlurTileMaxPipelineCompute = nullptr;
+DescriptorSet* pMotionBlurTileMaxDescriptorSetCompute[1] = { nullptr };
+
+Shader*        pMotionBlurNeighborMaxShaderCompute = nullptr;
+RootSignature* pMotionBlurNeighborMaxRootSignatureCompute = nullptr;
+Pipeline*      pMotionBlurNeighborMaxPipelineCompute = nullptr;
+DescriptorSet* pMotionBlurNeighborMaxDescriptorSetCompute[1] = { nullptr };
+
+Shader*        pMotionBlurReconstructShaderCompute = nullptr;
+RootSignature* pMotionBlurReconstructRootSignatureCompute = nullptr;
+Pipeline*      pMotionBlurReconstructPipelineCompute = nullptr;
+DescriptorSet* pMotionBlurReconstructDescriptorSetCompute[1] = { nullptr };
 
 Texture* pSkybox = NULL;
 Texture* pBRDFIntegrationMap = NULL;
@@ -675,6 +691,7 @@ public:
 		}
 		{
 			// Motion Blur
+			// MaxTile rasterization
 			{
 				ShaderLoadDesc MotionBlurTileMaxShaderDesc = {};
 				MotionBlurTileMaxShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
@@ -688,6 +705,20 @@ public:
 				MotionBlurTileMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforTileMaxNames;
 				MotionBlurTileMaxRootDesc.ppStaticSamplers = pStaticSamplersforTileMax;
 				addRootSignature(pRenderer, &MotionBlurTileMaxRootDesc, &pMotionBlurTileMaxRootSignature);
+			}
+			// MaxTile compute
+			{
+				ShaderLoadDesc MotionBlurTileMaxShaderDesc = {};
+				MotionBlurTileMaxShaderDesc.mStages[0] = { "MotionBlurTileMax.comp", nullptr, 0 };
+				addShader(pRenderer, &MotionBlurTileMaxShaderDesc, &pMotionBlurTileMaxShaderCompute);
+				const char* pStaticSamplerforTileMaxNames[] = { "nearestSamplerBorder" };
+				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearestBorder };
+
+				RootSignatureDesc MotionBlurTileMaxRootDesc = { &pMotionBlurTileMaxShaderCompute, 1 };
+				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 1;
+				MotionBlurTileMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforTileMaxNames;
+				MotionBlurTileMaxRootDesc.ppStaticSamplers = pStaticSamplersforTileMax;
+				addRootSignature(pRenderer, &MotionBlurTileMaxRootDesc, &pMotionBlurTileMaxRootSignatureCompute);
 			}
 			{
 				ShaderLoadDesc MotionBlurNeighborMaxShaderDesc = {};
@@ -755,12 +786,17 @@ public:
 		}
 		//Motion blur
 		{
+			//raster
 			setDesc = { pMotionBlurTileMaxRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
-			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetMotionBlurTileMax[0]);
+			addDescriptorSet(pRenderer, &setDesc, &pMotionBlurTileMaxDescriptorSet[0]);
 			setDesc = { pMotionBlurNeighborMaxRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
-			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetMotionBlurNeighborMax[0]);
+			addDescriptorSet(pRenderer, &setDesc, &pMotionBlurNeighborMaxDescriptorSet[0]);
 			setDesc = { pMotionBlurReconstructRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
-			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetMotionBlurReconstruct[0]);
+			addDescriptorSet(pRenderer, &setDesc, &pMotionBlurReconstructDescriptorSet[0]);
+
+			//compute
+			setDesc = { pMotionBlurTileMaxRootSignatureCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pMotionBlurTileMaxDescriptorSetCompute[0]);
 		}
 		BufferLoadDesc sponza_buffDesc = {};
 		sponza_buffDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -982,6 +1018,7 @@ public:
 		pGui->AddWidget(SliderFloatWidget("Exposure time", &gMotionBlurExposureTime, 0.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Blur strength", &gMotionBlurPixelsCount, 1.0f, 5.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Blur samples", &gMotionBlurSamplesCount, 7.0f, 31.0f, 2.0f));
+		pGui->AddWidget(OneLineCheckboxWidget("Motion blur compute", &gMotionBlurCompute, 0xFFFFFFFFu));
 		DropdownWidget ddViewRendertarget("View Renderarget", &gViewRTIndex, gViewRTNames, gViewRTIndices, sizeof(gViewRTNames) / sizeof(gViewRTNames[0]));
 		ddViewRendertarget.pOnEdited = ViewRT;
 		pGui->AddWidget(ddViewRendertarget);
@@ -1137,9 +1174,10 @@ public:
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 		removeDescriptorSet(pRenderer, pLinearizeDepthDescriptor[0]);
 		removeDescriptorSet(pRenderer, pLinearizeDepthDescriptor[1]);
-		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurTileMax[0]);
-		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurNeighborMax[0]);
-		removeDescriptorSet(pRenderer, pDescriptorSetMotionBlurReconstruct[0]);
+		removeDescriptorSet(pRenderer, pMotionBlurTileMaxDescriptorSet[0]);
+		removeDescriptorSet(pRenderer, pMotionBlurTileMaxDescriptorSetCompute[0]);
+		removeDescriptorSet(pRenderer, pMotionBlurNeighborMaxDescriptorSet[0]);
+		removeDescriptorSet(pRenderer, pMotionBlurReconstructDescriptorSet[0]);
 
 		for (uint32_t i = 0; i < gImageCount; ++i)
 		{
@@ -1182,6 +1220,7 @@ public:
 		removeShader(pRenderer, pShaderGbuffers);
 		removeShader(pRenderer, pLinearizeDepthShader);
 		removeShader(pRenderer, pMotionBlurTileMaxShader);
+		removeShader(pRenderer, pMotionBlurTileMaxShaderCompute);
 		removeShader(pRenderer, pMotionBlurNeighborMaxShader);
 		removeShader(pRenderer, pMotionBlurReconstructShader);
 
@@ -1195,6 +1234,7 @@ public:
 		removeRootSignature(pRenderer, pRootSigGbuffers);
 		removeRootSignature(pRenderer, pLinearizeDepthRootSignature);
 		removeRootSignature(pRenderer, pMotionBlurTileMaxRootSignature);
+		removeRootSignature(pRenderer, pMotionBlurTileMaxRootSignatureCompute);
 		removeRootSignature(pRenderer, pMotionBlurNeighborMaxRootSignature);
 		removeRootSignature(pRenderer, pMotionBlurReconstructRootSignature);
 
@@ -1401,21 +1441,21 @@ public:
 		setDesc = { pSpecularRootSignature, DESCRIPTOR_UPDATE_FREQ_PER_DRAW, gSkyboxMips };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetSpecular[1]);
 
-		PipelineDesc desc = {};
-		desc.mType = PIPELINE_TYPE_COMPUTE;
-		ComputePipelineDesc& pipelineSettings = desc.mComputeDesc;
+		PipelineDesc desc_compute = {};
+		desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+		ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
 		pipelineSettings.pShaderProgram = pPanoToCubeShader;
 		pipelineSettings.pRootSignature = pPanoToCubeRootSignature;
-		addPipeline(pRenderer, &desc, &pPanoToCubePipeline);
+		addPipeline(pRenderer, &desc_compute, &pPanoToCubePipeline);
 		pipelineSettings.pShaderProgram = pIrradianceShader;
 		pipelineSettings.pRootSignature = pIrradianceRootSignature;
-		addPipeline(pRenderer, &desc, &pIrradiancePipeline);
+		addPipeline(pRenderer, &desc_compute, &pIrradiancePipeline);
 		pipelineSettings.pShaderProgram = pSpecularShader;
 		pipelineSettings.pRootSignature = pSpecularRootSignature;
-		addPipeline(pRenderer, &desc, &pSpecularPipeline);
+		addPipeline(pRenderer, &desc_compute, &pSpecularPipeline);
 		pipelineSettings.pShaderProgram = pBRDFIntegrationShader;
 		pipelineSettings.pRootSignature = pBRDFIntegrationRootSignature;
-		addPipeline(pRenderer, &desc, &pBRDFIntegrationPipeline);
+		addPipeline(pRenderer, &desc_compute, &pBRDFIntegrationPipeline);
 
 		waitForToken(&token);
 
@@ -1623,9 +1663,11 @@ public:
 		RasterizerStateDesc rasterizerStateDesc = {};
 		rasterizerStateDesc.mCullMode = CULL_MODE_NONE;
 
-		PipelineDesc desc = {};
-		desc.mType = PIPELINE_TYPE_GRAPHICS;
-		GraphicsPipelineDesc& deferredPassPipelineSettings = desc.mGraphicsDesc;
+		PipelineDesc desc_raster = {};
+		desc_raster.mType = PIPELINE_TYPE_GRAPHICS;
+		PipelineDesc desc_compute = {};
+		desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+		GraphicsPipelineDesc& deferredPassPipelineSettings = desc_raster.mGraphicsDesc;
 		deferredPassPipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
 		deferredPassPipelineSettings.mRenderTargetCount = GBuffers::Count;
 		deferredPassPipelineSettings.pDepthState = &depthStateDesc;
@@ -1640,7 +1682,7 @@ public:
 		deferredPassPipelineSettings.pShaderProgram = pShaderGbuffers;
 		deferredPassPipelineSettings.pVertexLayout = &gVertexLayoutModel;
 		deferredPassPipelineSettings.pRasterizerState = &rasterizerStateDesc;
-		addPipeline(pRenderer, &desc, &pPipelineGbuffers);
+		addPipeline(pRenderer, &desc_raster, &pPipelineGbuffers);
 
 		//layout and pipeline for skybox draw
 		VertexLayout vertexLayoutSkybox = {};
@@ -1666,7 +1708,7 @@ public:
 		deferredPassPipelineSettings.pShaderProgram = pSkyboxShader;
 		deferredPassPipelineSettings.pVertexLayout = &vertexLayoutSkybox;
 		deferredPassPipelineSettings.pRasterizerState = &rasterizerStateDesc;
-		addPipeline(pRenderer, &desc, &pSkyboxPipeline);
+		addPipeline(pRenderer, &desc_raster, &pSkyboxPipeline);
 
 		// BRDF
 		//triangle
@@ -1688,8 +1730,8 @@ public:
 		vertexLayoutScreenQuad.mAttribs[1].mBinding = 0;
 		vertexLayoutScreenQuad.mAttribs[1].mOffset = 3 * sizeof(float);    // first attribute contains 3 floats
 
-		desc.mGraphicsDesc = {};
-		GraphicsPipelineDesc& pipelineSettings = desc.mGraphicsDesc;
+		desc_raster.mGraphicsDesc = {};
+		GraphicsPipelineDesc& pipelineSettings = desc_raster.mGraphicsDesc;
 		pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
 		pipelineSettings.mRenderTargetCount = 1;
 		pipelineSettings.pDepthState = NULL;
@@ -1704,7 +1746,7 @@ public:
 		pipelineSettings.pShaderProgram = pShaderBRDF;
 		pipelineSettings.pVertexLayout = &vertexLayoutScreenQuad;
 		pipelineSettings.pRasterizerState = &rasterizerStateDesc;
-		addPipeline(pRenderer, &desc, &pPipelineBRDF);
+		addPipeline(pRenderer, &desc_raster, &pPipelineBRDF);
 
 		////PPR_HolePatching -> Present
 		pipelineSettings = { 0 };
@@ -1721,7 +1763,7 @@ public:
 		pipelineSettings.pShaderProgram = pPPR_HolePatchingShader;
 		pipelineSettings.pVertexLayout = &vertexLayoutScreenQuad;
 		pipelineSettings.pRasterizerState = &rasterizerStateDesc;
-		addPipeline(pRenderer, &desc, &pPPR_HolePatchingPipeline);
+		addPipeline(pRenderer, &desc_raster, &pPPR_HolePatchingPipeline);
 
 		{
 			pipelineSettings = { 0 };
@@ -1738,7 +1780,7 @@ public:
 			pipelineSettings.pShaderProgram = pLinearizeDepthShader;
 			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
 			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
-			addPipeline(pRenderer, &desc, &pLinearizeDepthPipeline);
+			addPipeline(pRenderer, &desc_raster, &pLinearizeDepthPipeline);
 		}
 		{
 			pipelineSettings = { 0 };
@@ -1755,7 +1797,13 @@ public:
 			pipelineSettings.pShaderProgram = pMotionBlurTileMaxShader;
 			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
 			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
-			addPipeline(pRenderer, &desc, &pMotionBlurTileMaxPipeline);
+			addPipeline(pRenderer, &desc_raster, &pMotionBlurTileMaxPipeline);
+		}
+		{
+			ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
+			pipelineSettings.pShaderProgram = pMotionBlurTileMaxShaderCompute;
+			pipelineSettings.pRootSignature = pMotionBlurTileMaxRootSignatureCompute;
+			addPipeline(pRenderer, &desc_compute, &pMotionBlurTileMaxPipelineCompute);
 		}
 		{
 			pipelineSettings = { 0 };
@@ -1772,7 +1820,7 @@ public:
 			pipelineSettings.pShaderProgram = pMotionBlurNeighborMaxShader;
 			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
 			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
-			addPipeline(pRenderer, &desc, &pMotionBlurNeighborMaxPipeline);
+			addPipeline(pRenderer, &desc_raster, &pMotionBlurNeighborMaxPipeline);
 		}
 		{
 			pipelineSettings = { 0 };
@@ -1789,7 +1837,7 @@ public:
 			pipelineSettings.pShaderProgram = pMotionBlurReconstructShader;
 			pipelineSettings.pVertexLayout = &vertexLayoutScreenTriangle;
 			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
-			addPipeline(pRenderer, &desc, &pMotionBlurReconstructPipeline);
+			addPipeline(pRenderer, &desc_raster, &pMotionBlurReconstructPipeline);
 		}
 
 		PrepareDescriptorSets(false);
@@ -1814,6 +1862,7 @@ public:
 		removePipeline(pRenderer, pPipelineGbuffers);
 		removePipeline(pRenderer, pLinearizeDepthPipeline);
 		removePipeline(pRenderer, pMotionBlurTileMaxPipeline);
+		removePipeline(pRenderer, pMotionBlurTileMaxPipelineCompute);
 		removePipeline(pRenderer, pMotionBlurNeighborMaxPipeline);
 		removePipeline(pRenderer, pMotionBlurReconstructPipeline);
 
@@ -2201,6 +2250,19 @@ public:
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "MotionBlur");
 		{
+			if (gMotionBlurCompute)
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileMax");
+				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				cmdBindPipeline(cmd, pMotionBlurTileMaxPipelineCompute);
+				cmdBindDescriptorSet(cmd, 0, pMotionBlurTileMaxDescriptorSetCompute[0]);
+				cmdDispatch(cmd, pTileMaxBuffer->mWidth >> 4, pTileMaxBuffer->mHeight, 1);
+				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
+			else
 			{
 				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileMax");
 				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
@@ -2212,7 +2274,7 @@ public:
 				cmdSetViewport(cmd, 0.0f, 0.0f, (float)pTileMaxBuffer->mWidth, (float)pTileMaxBuffer->mHeight, 0.0f, 1.0f);
 				cmdSetScissor(cmd, 0, 0, pTileMaxBuffer->mWidth, pTileMaxBuffer->mHeight);
 				cmdBindPipeline(cmd, pMotionBlurTileMaxPipeline);
-				cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurTileMax[0]);
+				cmdBindDescriptorSet(cmd, 0, pMotionBlurTileMaxDescriptorSet[0]);
 				cmdDraw(cmd, 3, 0);
 				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
 				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
@@ -2229,7 +2291,7 @@ public:
 				cmdSetViewport(cmd, 0.0f, 0.0f, (float)pNeighborMaxBuffer->mWidth, (float)pNeighborMaxBuffer->mHeight, 0.0f, 1.0f);
 				cmdSetScissor(cmd, 0, 0, pNeighborMaxBuffer->mWidth, pNeighborMaxBuffer->mHeight);
 				cmdBindPipeline(cmd, pMotionBlurNeighborMaxPipeline);
-				cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurNeighborMax[0]);
+				cmdBindDescriptorSet(cmd, 0, pMotionBlurNeighborMaxDescriptorSet[0]);
 				cmdDraw(cmd, 3, 0);
 				rtBarriers[0] = { pNeighborMaxBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
 				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
@@ -2247,7 +2309,7 @@ public:
 				cmdSetViewport(cmd, 0.0f, 0.0f, (float)pMotionBlurredBuffer->mWidth, (float)pMotionBlurredBuffer->mHeight, 0.0f, 1.0f);
 				cmdSetScissor(cmd, 0, 0, pMotionBlurredBuffer->mWidth, pMotionBlurredBuffer->mHeight);
 				cmdBindPipeline(cmd, pMotionBlurReconstructPipeline);
-				cmdBindDescriptorSet(cmd, 0, pDescriptorSetMotionBlurReconstruct[0]);
+				cmdBindDescriptorSet(cmd, 0, pMotionBlurReconstructDescriptorSet[0]);
 				cmdDraw(cmd, 3, 0);
 				rtBarriers[0] = { pMotionBlurredBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
 				cmdResourceBarrier(cmd, 0, nullptr, 0, nullptr, 1, rtBarriers);
@@ -2425,7 +2487,18 @@ public:
 			MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
 			MotionBlurTileMaxParams[1].pName = "VelocityTexture";
 			MotionBlurTileMaxParams[1].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurTileMax[0], 2, MotionBlurTileMaxParams);
+			updateDescriptorSet(pRenderer, 0, pMotionBlurTileMaxDescriptorSet[0], 2, MotionBlurTileMaxParams);
+		}
+		//compute
+		{
+			DescriptorData MotionBlurTileMaxParams[3] = {};
+			MotionBlurTileMaxParams[0].pName = "cbMotionBlurConsts";
+			MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
+			MotionBlurTileMaxParams[1].pName = "VelocityTexture";
+			MotionBlurTileMaxParams[1].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
+			MotionBlurTileMaxParams[2].pName = "TileMax";
+			MotionBlurTileMaxParams[2].ppTextures = &pTileMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pMotionBlurTileMaxDescriptorSetCompute[0], 3, MotionBlurTileMaxParams);
 		}
 		//Motion blur NeighborMax
 		{
@@ -2434,7 +2507,7 @@ public:
 			MotionBlurNeighborMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
 			MotionBlurNeighborMaxParams[1].pName = "TileMaxTexture";
 			MotionBlurNeighborMaxParams[1].ppTextures = &pTileMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurNeighborMax[0], 2, MotionBlurNeighborMaxParams);
+			updateDescriptorSet(pRenderer, 0, pMotionBlurNeighborMaxDescriptorSet[0], 2, MotionBlurNeighborMaxParams);
 		}
 		//Motion blur Reconstruct
 		{
@@ -2451,7 +2524,7 @@ public:
 			MotionBlurReconstructParams[4].ppTextures = &pTileMaxBuffer->pTexture;*/
 			MotionBlurReconstructParams[4].pName = "NeighborMaxTexture";
 			MotionBlurReconstructParams[4].ppTextures = &pNeighborMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetMotionBlurReconstruct[0], 5, MotionBlurReconstructParams);
+			updateDescriptorSet(pRenderer, 0, pMotionBlurReconstructDescriptorSet[0], 5, MotionBlurReconstructParams);
 		}
 	}
 
@@ -2615,7 +2688,7 @@ public:
 		tilemaxRT.mHeight = static_cast<uint32_t>(mSettings.mHeight / cMotionBlurK);
 		tilemaxRT.mArraySize = 1;
 		tilemaxRT.mDepth = 1;
-		tilemaxRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
+		tilemaxRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
 		tilemaxRT.mFormat = cMotionBlurBufferFormat;
 		tilemaxRT.mClearValue = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 		tilemaxRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
