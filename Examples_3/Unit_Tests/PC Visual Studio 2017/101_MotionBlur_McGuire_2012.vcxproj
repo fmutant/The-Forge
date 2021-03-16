@@ -28,6 +28,7 @@
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\FullscreenTriangle.vert" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\generateMips.comp" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\linearizeDepth.frag" />
+    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\MotionBlurNeighborMax.comp" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\MotionBlurNeighborMax.frag" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\MotionBlurReconstruct.frag" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\MotionBlurTileMax.comp" />
