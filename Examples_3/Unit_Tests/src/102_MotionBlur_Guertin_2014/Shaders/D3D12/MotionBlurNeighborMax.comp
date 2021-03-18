@@ -1,0 +1,33 @@
+RWTexture2D<float2> NeighborMax: register(u0);
+Texture2D<float2> TileMaxTexture : register(t11);
+
+cbuffer cbMotionBlurConsts : register(b3)
+{
+	float4 mConsts;
+}
+
+SamplerState nearestSamplerBorder : register(s6);
+
+float2 vmax(float2 v0, float2 v1)
+{
+	return dot(v0, v0) < dot(v1, v1) ? v1 : v0;
+}
+
+[numthreads(16, 1, 1)]
+void main(int3 DTid: SV_DispatchThreadID)
+{
+	float2 uv_tile_diff = mConsts.xx * mConsts.zw;
+	float2 uv = float2(DTid.xy) * uv_tile_diff;
+	
+	float2 neighbor_max = float2(0.0f, 0.0f);
+	for (float i = -1.0f; i <= 1.0f; i += 1.0f)
+	{
+		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
+		{
+			float2 uv_sample = uv + float2(i, j) * uv_tile_diff;
+			float2 tilemax = TileMaxTexture.SampleLevel(nearestSamplerBorder, uv_sample, 0);
+			neighbor_max = vmax(tilemax, neighbor_max);
+		}
+	}
+	NeighborMax[DTid.xy] = neighbor_max;
+}
