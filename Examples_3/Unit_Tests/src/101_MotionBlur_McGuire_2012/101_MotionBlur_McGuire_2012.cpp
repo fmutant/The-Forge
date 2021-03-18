@@ -385,7 +385,8 @@ eastl::vector<uint32_t> gInitializeVal;
 
 VirtualJoystickUI gVirtualJoystick;
 
-UniformObjData gUniformDataMVP;
+UniformObjData gUniformDataMVPScene;
+UniformObjData gUniformDataMVPLion;
 
 /************************************************************************/
 // Vertex buffers for the model
@@ -972,27 +973,15 @@ public:
 
 		// Update the uniform buffer for the objects
 		mat4 sponza_modelmat = mat4::translation(vec3(0.0f, -6.0f, 0.0f)) * mat4::scale(vec3(0.02f, 0.02f, 0.02f));
-		gUniformDataMVP.mWorldMat = sponza_modelmat;
-		gUniformDataMVP.mPrevWorldMat = gUniformDataMVP.mWorldMat;
-		gUniformDataMVP.mMetallic = 0;
-		gUniformDataMVP.mRoughness = 0.5f;
-		gUniformDataMVP.pbrMaterials = 1;
+		gUniformDataMVPScene.mWorldMat = sponza_modelmat;
+		gUniformDataMVPScene.mPrevWorldMat = gUniformDataMVPScene.mWorldMat;
+		gUniformDataMVPScene.mMetallic = 0;
+		gUniformDataMVPScene.mRoughness = 0.5f;
+		gUniformDataMVPScene.pbrMaterials = 1;
 		BufferUpdateDesc sponza_objBuffUpdateDesc = { pSponzaBuffer };
 		beginUpdateResource(&sponza_objBuffUpdateDesc);
-		*(UniformObjData*)sponza_objBuffUpdateDesc.pMappedData = gUniformDataMVP;
+		*(UniformObjData*)sponza_objBuffUpdateDesc.pMappedData = gUniformDataMVPScene;
 		endUpdateResource(&sponza_objBuffUpdateDesc, NULL);
-
-		// Update the uniform buffer for the objects
-		mat4 lion_modelmat = mat4::translation(vec3(0.0f, -6.0f, 1.0f)) * mat4::rotationY(-1.5708f) * mat4::scale(vec3(0.2f, 0.2f, -0.2f));
-		gUniformDataMVP.mWorldMat = lion_modelmat;
-		gUniformDataMVP.mPrevWorldMat = gUniformDataMVP.mWorldMat;
-		gUniformDataMVP.mMetallic = 0;
-		gUniformDataMVP.mRoughness = 0.5f;
-		gUniformDataMVP.pbrMaterials = 1;
-		BufferUpdateDesc lion_objBuffUpdateDesc = { pLionBuffer };
-		beginUpdateResource(&lion_objBuffUpdateDesc);
-		*(UniformObjData*)lion_objBuffUpdateDesc.pMappedData = gUniformDataMVP;
-		endUpdateResource(&lion_objBuffUpdateDesc, NULL);
 
 		// Add light to scene
 
@@ -2012,6 +2001,28 @@ public:
 		basicMat[1] = vec4(0.0, 0.0, -1.0, 0.0);    //bitan
 		basicMat[2] = vec4(0.0, 1.0, 0.0, 0.0);     //normal
 		basicMat[3] = vec4(0.0, 0.0, 0.0, 1.0);
+		{
+			// Update the uniform buffer for the objects
+			vec3 lion_pos_start = vec3(0.0f, -6.0f, 1.0f);
+			vec3 lion_pos_end = vec3(0.0f, 6.0f, 1.0f);
+			static float sTime = 0.0f;
+			sTime += deltaTime;
+			const float lion_speed = 50.0f;
+			float t = sTime - static_cast<long>(sTime);
+
+			vec3 lion_pos = lion_pos_start + normalize(lion_pos_end - lion_pos_start) * lion_speed * t;
+
+			mat4 lion_modelmat = mat4::translation(lion_pos) * mat4::rotationY(-1.5708f) * mat4::scale(vec3(0.2f, 0.2f, -0.2f));
+			gUniformDataMVPLion.mPrevWorldMat = gUniformDataMVPLion.mWorldMat;
+			gUniformDataMVPLion.mWorldMat = lion_modelmat;
+			gUniformDataMVPLion.mMetallic = 0;
+			gUniformDataMVPLion.mRoughness = 0.5f;
+			gUniformDataMVPLion.pbrMaterials = 1;
+			BufferUpdateDesc lion_objBuffUpdateDesc = { pLionBuffer };
+			beginUpdateResource(&lion_objBuffUpdateDesc);
+			*(UniformObjData*)lion_objBuffUpdateDesc.pMappedData = gUniformDataMVPLion;
+			endUpdateResource(&lion_objBuffUpdateDesc, nullptr);
+		}
 
 
 		SyncToken currentProgress = getLastTokenCompleted();
