@@ -150,11 +150,11 @@ PSOut main(PsIn input) : SV_TARGET
 	Out.specular = float4(_roughness, ao, input.uv);
 
 	float2 qx = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
-	qx *= motionBlurParams.y;
 	float len_qx = length(qx);
-	float weight = max(0.5f, min(len_qx, motionBlurParams.x));
-	weight /= len_qx + 0.001f;
-	Out.motion = qx * weight;
+	qx *= 0.5f / motionBlurParams.x;
+	float weight = max(min(len_qx * motionBlurParams.y, motionBlurParams.x), 0.5f);
+	weight /= len_qx + 1e-5f;
+	Out.motion = qx * weight + 0.5f;
 
 	return Out;
 }
