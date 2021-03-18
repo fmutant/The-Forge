@@ -5,7 +5,7 @@ cbuffer cbMotionBlurConsts : register(b3)
 	float4 mConsts;
 }
 
-SamplerState nearestSamplerBorder : register(s6);
+SamplerState nearestSamplerBorderZero : register(s6);
 
 struct VSOutput {
 	float4 position : SV_POSITION;	
@@ -27,7 +27,7 @@ float2 main(VSOutput input) : SV_TARGET
 		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
 		{
 			float2 uv_sample = uv_tile + float2(i, j) * uv_tile_diff;
-			float2 tilemax = TileMaxTexture.Sample(nearestSamplerBorder, uv_sample);
+			float2 tilemax = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_sample);
 			neighbor_max = vmax(tilemax, neighbor_max);
 		}
 	}

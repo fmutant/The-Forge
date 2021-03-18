@@ -34,6 +34,8 @@
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurReconstruct.frag" />
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileMax.comp" />
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileMax.frag" />
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileVariance.comp" />
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileVariance.frag" />
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\panoToCube.comp" />
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\PPR_Holepatching.frag" />
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\PPR_Holepatching.vert" />

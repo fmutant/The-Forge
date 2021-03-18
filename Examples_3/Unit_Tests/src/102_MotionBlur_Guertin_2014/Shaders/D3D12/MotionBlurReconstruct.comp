@@ -11,7 +11,7 @@ cbuffer cbMotionBlurConsts : register(b3)
 	float4 params;
 }
 
-SamplerState nearestSamplerBorder : register(s6);
+SamplerState nearestSamplerBorderZero : register(s6);
 
 float random_half(float2 _st) {
     return frac(sin(dot(_st.xy,
@@ -40,12 +40,12 @@ void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout flo
 	float2 uv1 = uv0 + diff;
 	float uvdiff = length(diff);
 	
-	float4 Cy = SceneTexture.SampleLevel(nearestSamplerBorder, uv1, 0);
-	float Dy = DepthTexture.SampleLevel(nearestSamplerBorder, uv1, 0);
+	float4 Cy = SceneTexture.SampleLevel(nearestSamplerBorderZero, uv1, 0);
+	float Dy = DepthTexture.SampleLevel(nearestSamplerBorderZero, uv1, 0);
 	float f = softDepthCompare(Dx, Dy);
 	float b = softDepthCompare(Dy, Dx);
 	
-	float2 Vy = VelocityTexture.SampleLevel(nearestSamplerBorder, uv1, 0);
+	float2 Vy = VelocityTexture.SampleLevel(nearestSamplerBorderZero, uv1, 0);
 	float vylen = length(Vy);
 	float alpha = 	f * cone(uvdiff, vylen) +
 					b * cone(uvdiff, vxlen) +
@@ -59,17 +59,17 @@ void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout flo
 void main(int3 DTid: SV_DispatchThreadId)
 {
 	float2 uv0 = float2(DTid.xy) * consts.zw;
-	float4 Cx = SceneTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
-	float2 Vn = NeighborMaxTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
+	float4 Cx = SceneTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
+	float2 Vn = NeighborMaxTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
 	if (length(Vn) <= 1e-6f + 0.5f)
 	{
 		MotionBlurTexture[DTid.xy] = Cx;
 		return;
 	}
 
-	float2 Vx = VelocityTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
+	float2 Vx = VelocityTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
 	float Vxlen = length(Vx);
-	float Dx = DepthTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
+	float Dx = DepthTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
 	float weight = 1.0f / Vxlen;
 	float4 sum = Cx * weight;
 

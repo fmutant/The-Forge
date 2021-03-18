@@ -6,7 +6,7 @@ cbuffer cbMotionBlurConsts : register(b3)
 	float4 consts;
 }
 
-SamplerState nearestSamplerBorder : register(s6);
+SamplerState nearestSamplerBorderZero : register(s6);
 
 float2 vmax(float2 v0, float2 v1)
 {
@@ -25,7 +25,7 @@ void main(uint3 DTid : SV_DispatchThreadID)
 		for (float j = 0.0f; j < consts.x; j += 1.0f)
 		{
 			float2 uv_sample = uv + float2(i, j) * consts.zw;
-			float2 velocity = VelocityTexture.SampleLevel(nearestSamplerBorder, uv_sample, 0);
+			float2 velocity = VelocityTexture.SampleLevel(nearestSamplerBorderZero, uv_sample, 0);
 			tile_max = vmax(velocity, tile_max);
 		}
 	}

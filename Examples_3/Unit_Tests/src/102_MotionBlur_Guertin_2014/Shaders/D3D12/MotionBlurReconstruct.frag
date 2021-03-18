@@ -10,7 +10,7 @@ cbuffer cbMotionBlurConsts : register(b3)
 	float4 params;
 }
 
-SamplerState nearestSamplerBorder : register(s6);
+SamplerState nearestSamplerBorderZero : register(s6);
 
 struct VSOutput {
 	float4 position : SV_POSITION;	
@@ -33,8 +33,7 @@ float cylinder(float uvdiff, float vlen)
 }
 float softDepthCompare(float Za, float Zb)
 {
-	static const float cZExtent = 10.0f; // div by 0.1 in paper
-	return saturate(1.0f - (Za - Zb) * cZExtent);
+	return saturate(1.0f - (Za - Zb) / min(Za, Zb));
 }
 
 void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout float4 sum, inout float weight)
@@ -44,12 +43,12 @@ void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout flo
 	float2 uv1 = uv0 + diff;
 	float uvdiff = length(diff);
 	
-	float4 Cy = SceneTexture.Sample(nearestSamplerBorder, uv1);
-	float Dy = DepthTexture.Sample(nearestSamplerBorder, uv1);
+	float4 Cy = SceneTexture.Sample(nearestSamplerBorderZero, uv1);
+	float Dy = DepthTexture.Sample(nearestSamplerBorderZero, uv1);
 	float f = softDepthCompare(Dx, Dy);
 	float b = softDepthCompare(Dy, Dx);
 	
-	float2 Vy = VelocityTexture.Sample(nearestSamplerBorder, uv1);
+	float2 Vy = VelocityTexture.Sample(nearestSamplerBorderZero, uv1);
 	float vylen = length(Vy);
 	float alpha = 	f * cone(uvdiff, vylen) +
 					b * cone(uvdiff, vxlen) +
@@ -62,13 +61,13 @@ void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout flo
 float4 main(VSOutput input) : SV_TARGET
 {
 	float2 uv0 = input.texcoord;
-	float4 Cx = SceneTexture.Sample(nearestSamplerBorder, uv0);
-	float2 Vn = NeighborMaxTexture.Sample(nearestSamplerBorder, uv0);
+	float4 Cx = SceneTexture.Sample(nearestSamplerBorderZero, uv0);
+	float2 Vn = NeighborMaxTexture.Sample(nearestSamplerBorderZero, uv0);
 	if (length(Vn) <= 1e-6f + 0.5f) return Cx;
 
-	float2 Vx = VelocityTexture.Sample(nearestSamplerBorder, uv0);
+	float2 Vx = VelocityTexture.Sample(nearestSamplerBorderZero, uv0);
 	float Vxlen = length(Vx);
-	float Dx = DepthTexture.Sample(nearestSamplerBorder, uv0);
+	float Dx = DepthTexture.Sample(nearestSamplerBorderZero, uv0);
 	float weight = 1.0f / Vxlen;
 	float4 sum = Cx * weight;
 

@@ -35,7 +35,7 @@ cbuffer cbCamera : register(b0, UPDATE_FREQ_PER_FRAME)
 }
 
 Texture2D<float> DepthTexture : register(t9);
-SamplerState nearestSamplerBorder : register(s6);
+SamplerState nearestSamplerBorderZero : register(s6);
 
 struct PsIn
 {
@@ -53,7 +53,7 @@ PSOut main(PsIn input) : SV_TARGET
 {
 	PSOut Out;
 	
-	float depth = DepthTexture.Sample(nearestSamplerBorder, input.uv);
+	float depth = DepthTexture.Sample(nearestSamplerBorderZero, input.uv);
 	float c1 = farOverNear;
 	float c0 = 1.0f - c1;
 	

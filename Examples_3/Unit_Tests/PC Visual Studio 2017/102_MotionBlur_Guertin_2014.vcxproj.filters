@@ -117,6 +117,12 @@
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurReconstruct.comp">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileVariance.comp">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileVariance.frag">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\102_MotionBlur_Guertin_2014\102_MotionBlur_Guertin_2014.cpp">
