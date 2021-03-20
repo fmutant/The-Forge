@@ -12,24 +12,31 @@ struct VSOutput {
 	float2 texcoord : TEXCOORD0;
 };
 
-float2 vmax(float2 v0, float2 v1)
+float2 vmax_axis(float2 sample, float2 vmax)
 {
-	return dot(v0, v0) < dot(v1, v1) ? v1 : v0;
+	return dot(sample, sample) < dot(vmax, vmax) ? vmax : sample;
+}
+
+float vmax_diag(float2 sample, float2 vmax, float offset)
+{
+	float2 sample_value = ceil(saturate(dot(sample, -offset))) * sample;
+	return dot(sample_value, sample_value) < dot(vmax, vmax) ? vmax : sample;
 }
 
 float2 main(VSOutput input) : SV_TARGET
 {
 	float2 uv_tile = input.texcoord;
 	float2 uv_tile_diff = mConsts.xx * mConsts.zw;
-	float2 neighbor_max = float2(0.0f, 0.0f);
-	for (float i = -1.0f; i <= 1.0f; i += 1.0f)
-	{
-		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
-		{
-			float2 uv_sample = uv_tile + float2(i, j) * uv_tile_diff;
-			float2 tilemax = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_sample);
-			neighbor_max = vmax(tilemax, neighbor_max);
-		}
-	}
+	float2 neighbor_max = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile);
+
+	neighbor_max = vmax_axis(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2(-1.0f,  0.0f)), neighbor_max);
+	neighbor_max = vmax_axis(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 1.0f,  0.0f)), neighbor_max);
+	neighbor_max = vmax_axis(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 0.0f, -1.0f)), neighbor_max);
+	neighbor_max = vmax_axis(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 0.0f,  1.0f)), neighbor_max);
+	neighbor_max = vmax_diag(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2(-1.0f, -1.0f)), neighbor_max, float2(-1.0f, -1.0f));
+	neighbor_max = vmax_diag(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 1.0f, -1.0f)), neighbor_max, float2( 1.0f, -1.0f));
+	neighbor_max = vmax_diag(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2(-1.0f,  1.0f)), neighbor_max, float2(-1.0f,  1.0f));
+	neighbor_max = vmax_diag(TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 1.0f,  1.0f)), neighbor_max, float2( 1.0f,  1.0f));
+
 	return neighbor_max;
 }
