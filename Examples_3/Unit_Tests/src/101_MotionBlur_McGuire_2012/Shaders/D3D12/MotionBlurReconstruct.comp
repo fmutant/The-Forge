@@ -61,14 +61,15 @@ void main(int3 DTid: SV_DispatchThreadId)
 	float2 uv0 = float2(DTid.xy) * consts.zw;
 	float4 Cx = SceneTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
 	float2 Vn = NeighborMaxTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
-	if (length(Vn) <= 1e-6f + 0.5f)
+	const float fEpsilon = 1e-6f;
+	if (length(Vn) <= fEpsilon + 0.5f)
 	{
 		MotionBlurTexture[DTid.xy] = Cx;
 		return;
 	}
 
 	float2 Vx = VelocityTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
-	float Vxlen = length(Vx);
+	float Vxlen = length(Vx) + fEpsilon;
 	float Dx = DepthTexture.SampleLevel(nearestSamplerBorder, uv0, 0);
 	float weight = 1.0f / Vxlen;
 	float4 sum = Cx * weight;

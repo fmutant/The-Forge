@@ -64,10 +64,11 @@ float4 main(VSOutput input) : SV_TARGET
 	float2 uv0 = input.texcoord;
 	float4 Cx = SceneTexture.Sample(nearestSamplerBorder, uv0);
 	float2 Vn = NeighborMaxTexture.Sample(nearestSamplerBorder, uv0);
-	if (length(Vn) <= 1e-6f + 0.5f) return Cx;
+	const float fEpsilon = 1e-6f;
+	if (length(Vn) <= fEpsilon + 0.5f) return Cx;
 
 	float2 Vx = VelocityTexture.Sample(nearestSamplerBorder, uv0);
-	float Vxlen = length(Vx);
+	float Vxlen = length(Vx) + fEpsilon;
 	float Dx = DepthTexture.Sample(nearestSamplerBorder, uv0);
 	float weight = 1.0f / Vxlen;
 	float4 sum = Cx * weight;
