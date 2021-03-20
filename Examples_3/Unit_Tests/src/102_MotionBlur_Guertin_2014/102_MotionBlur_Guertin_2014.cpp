@@ -78,10 +78,10 @@ struct UniformCamData
 	float mFarOverNear;
 };
 
-constexpr float cMotionBlurK = 15.0f;
-float gMotionBlurExposureTime = 0.75f; //of frame
+constexpr float cMotionBlurK = 40.0f;
+float gMotionBlurExposureTime = 0.75f; // seconds
 float gMotionBlurPixelsCount = 5.0f;
-float gMotionBlurSamplesCount = 15.0f;
+float gMotionBlurSamplesCount = 35.0f;
 bool gMotionBlurCompute = false;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
@@ -520,12 +520,12 @@ void ViewRT()
 }
 
 
-class MotionBlurMcGuire2012 : public IApp
+class MotionBlurGuertin2014 : public IApp
 {
 	size_t mProgressBarValue = 0, mProgressBarValueMax = 1024;
 
 public:
-	MotionBlurMcGuire2012()
+	MotionBlurGuertin2014()
 	{
 #ifdef TARGET_IOS
 		mSettings.mContentScaleFactor = 1.f;
@@ -596,7 +596,7 @@ public:
 
 		GuiDesc guiDesc = {};
 		guiDesc.mStartPosition = vec2(mSettings.mWidth * 0.01f, mSettings.mHeight * 0.25f);
-		pGui = gAppUI.AddGuiComponent("MotionBlurMcGuire2012", &guiDesc);
+		pGui = gAppUI.AddGuiComponent("MotionBlurGuertin2014", &guiDesc);
 
 		initProfiler();
 		initProfilerUI(&gAppUI, mSettings.mWidth, mSettings.mHeight);
@@ -1090,9 +1090,9 @@ public:
 #if !defined(TARGET_IOS)
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
-		pGui->AddWidget(SliderFloatWidget("Exposure time", &gMotionBlurExposureTime, 0.0f, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("Blur strength", &gMotionBlurPixelsCount, 1.0f, 5.0f, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("Blur samples", &gMotionBlurSamplesCount, 7.0f, 31.0f, 2.0f));
+		pGui->AddWidget(SliderFloatWidget("Exposure time", &gMotionBlurExposureTime, 0.0f, 20.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Blur strength", &gMotionBlurPixelsCount, 1.0f, 15.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Blur samples", &gMotionBlurSamplesCount, 7.0f, 55.0f, 2.0f));
 		pGui->AddWidget(OneLineCheckboxWidget("Motion blur compute", &gMotionBlurCompute, 0xFFFFFFFFu));
 		DropdownWidget ddViewRendertarget("View Renderarget", &gViewRTIndex, gViewRTNames, gViewRTIndices, sizeof(gViewRTNames) / sizeof(gViewRTNames[0]));
 		ddViewRendertarget.pOnEdited = ViewRT;
@@ -1306,7 +1306,7 @@ public:
 		removeShader(pRenderer, pMotionBlurNeighborMaxShaderCompute);
 		removeShader(pRenderer, pMotionBlurReconstructShader);
 		removeShader(pRenderer, pMotionBlurReconstructShaderCompute);
-
+		
 		removeSampler(pRenderer, pSamplerBilinear);
 		removeSampler(pRenderer, pSamplerNearest);
 		removeSampler(pRenderer, pSamplerNearestBorderZero);
@@ -2062,7 +2062,7 @@ public:
 
 		gUniformDataCamera.mMotionBlurParams = gUniformDataMotionBlur.mConsts = vec4(
 			cMotionBlurK,
-			0.5f * (gMotionBlurExposureTime / deltaTime),
+			gMotionBlurExposureTime / deltaTime,
 			1.0f / static_cast<float>(mSettings.mWidth),
 			1.0f / static_cast<float>(mSettings.mHeight)
 		);
@@ -2607,7 +2607,7 @@ public:
 		gFrameFlipFlop ^= 1;
 	}
 
-	const char* GetName() { return "101_MotionBLur_McGuire_2012"; }
+	const char* GetName() { return "102_MotionBlur_Guertin_2014"; }
 
 	void PrepareDescriptorSets(bool dataLoaded)
 	{
@@ -3198,4 +3198,4 @@ void assignSponzaTextures()
 	gSponzaTextureIndexforMaterial.push_back(AO);
 }
 
-DEFINE_APPLICATION_MAIN(MotionBlurMcGuire2012)
+DEFINE_APPLICATION_MAIN(MotionBlurGuertin2014)

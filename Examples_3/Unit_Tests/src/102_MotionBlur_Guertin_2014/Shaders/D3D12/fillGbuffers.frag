@@ -22,6 +22,8 @@
  * under the License.
 */
 
+#define UNORM 0
+
 cbuffer cbCamera : register(b0, UPDATE_FREQ_PER_FRAME)
 {
 	float4x4 projView;
@@ -150,11 +152,16 @@ PSOut main(PsIn input) : SV_TARGET
 	Out.specular = float4(_roughness, ao, input.uv);
 
 	float2 qx = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
+	
 	float len_qx = length(qx);
-	qx *= 0.5f / motionBlurParams.x;
+	
 	float weight = max(min(len_qx * motionBlurParams.y, motionBlurParams.x), 0.5f);
-	weight /= len_qx + 1e-5f;
-	Out.motion = qx * weight + 0.5f;
+	weight /= motionBlurParams.x;
+#if UNORM
+	Out.motion = qx / (len_qx + 1e-5f) * weight * 0.5 + 0.5f;
+#else
+	Out.motion = qx / (len_qx + 1e-5f) * weight;
+#endif
 
 	return Out;
 }
