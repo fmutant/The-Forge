@@ -1,0 +1,29 @@
+RWTexture2D<float2> TileVariance: register(u0);
+Texture2D<float2> TileMaxTexture : register(t11);
+
+cbuffer cbMotionBlurConsts : register(b3)
+{
+	float4 mConsts;
+}
+
+SamplerState pSamplerNearestEdge : register(s7);
+
+[numthreads(16, 1, 1)]
+void main(int3 DTid: SV_DispatchThreadID)
+{
+	float2 uv_tile_diff = mConsts.xx * mConsts.zw;
+	float2 uv_tile = float2(DTid.xy) * uv_tile_diff;
+	
+	float tile_variance = 0.0f;
+	float2 this_tile = TileMaxTexture.SampleLevel(pSamplerNearestEdge, uv_tile, 0);
+	for (float i = -1.0f; i <= 1.0f; i += 1.0f)
+	{
+		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
+		{
+			float2 uv_sample = uv_tile + float2(i, j) * uv_tile_diff;
+			float2 that_tile = TileMaxTexture.SampleLevel(pSamplerNearestEdge, uv_sample, 0);
+			tile_variance += abs(dot(that_tile, this_tile));
+		}
+	}
+	TileVariance[DTid.xy] = 1.0f - tile_variance * 0.111111f;
+}
