@@ -78,7 +78,7 @@ struct UniformCamData
 	float mFarOverNear;
 };
 
-constexpr float cMotionBlurK = 40.0f;
+constexpr float cMotionBlurK = 20.0f;
 float gMotionBlurExposureTime = 0.75f; // seconds
 float gMotionBlurPixelsCount = 5.0f;
 float gMotionBlurSamplesCount = 35.0f;
