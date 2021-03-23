@@ -81,7 +81,7 @@ float2 sOffset(float2 sv_position, float j)
 		float2( 0.0f, -1.0f),
 		float2( 0.0f,  1.0f),
 	};
-	return offsets[j * 4.0f + 0.24f * 4.0f] * consts.zw;
+	return offsets[j * 4.0f + 0.5] * (consts.xx * consts.zw);
 }
 
 float4 main(VSOutput input) : SV_TARGET
