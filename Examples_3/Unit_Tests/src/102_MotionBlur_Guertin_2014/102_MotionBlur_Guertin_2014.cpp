@@ -2094,16 +2094,18 @@ public:
 		basicMat[3] = vec4(0.0, 0.0, 0.0, 1.0);
 		{
 			// Update the uniform buffer for the objects
-			vec3 lion_pos_start = vec3(0.0f, -6.0f, 1.0f);
+			vec3 lion_pos_start = vec3(0.0f, 0.0f, 1.0f);
 			vec3 lion_pos_end = vec3(0.0f, 6.0f, 1.0f);
 			static float sTime = 0.0f;
 			sTime += deltaTime;
-			const float lion_speed = 50.0f;
+			const float lion_speed = 200.0f;
 			float t = sTime - static_cast<long>(sTime);
 
-			vec3 lion_pos = lion_pos_start + normalize(lion_pos_end - lion_pos_start) * lion_speed * t;
+			vec3 lion_pos = lion_pos_start /*+ normalize(lion_pos_end - lion_pos_start) * lion_speed * t*/;
 
-			mat4 lion_modelmat = mat4::translation(lion_pos) * mat4::rotationY(-1.5708f) * mat4::scale(vec3(0.2f, 0.2f, -0.2f));
+			mat4 rot = mat4::rotationX(2.0f * PI * sTime * degToRad(lion_speed));
+
+			mat4 lion_modelmat = mat4::translation(lion_pos) * rot * mat4::rotationY(-1.5708f) * mat4::scale(vec3(0.2f, 0.2f, -0.2f));
 			gUniformDataMVPLion.mPrevWorldMat = gUniformDataMVPLion.mWorldMat;
 			gUniformDataMVPLion.mWorldMat = lion_modelmat;
 			gUniformDataMVPLion.mMetallic = 0;
