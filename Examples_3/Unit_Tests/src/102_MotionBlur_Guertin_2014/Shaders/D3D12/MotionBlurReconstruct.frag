@@ -98,7 +98,7 @@ float4 main(VSOutput input) : SV_TARGET
 	float4 Cx = SceneTexture.Sample(nearestSamplerBorderZero, uv0);
 	float2 Vn = NeighborMaxTexture.Sample(nearestSamplerBorderZero, uv0 + sOffset(sv_position, j));
 	float Vnlen = length(Vn);
-	if (Vnlen <= 0.5f) return Cx;
+	if (Vnlen <= 0.01f) return Cx;
 	
 	float Zp = DepthTexture.Sample(nearestSamplerBorderZero, uv0);
 	float2 Vc = VelocityTexture.Sample(nearestSamplerBorderZero, uv0);
@@ -107,12 +107,7 @@ float4 main(VSOutput input) : SV_TARGET
 	float2 Wn = normalize(Vn);
 	float2 Wp = float2(-Wn.y, Wn.x);
 	if (dot(Wp, Vc) < 0.0f) Wp = -Wp;
-#if 0
-	//float2 Wc = /*normalize*/(lerp(Vc / Vclen, Wp, saturate(Vclen - 0.5f) / fGamma));
-	float2 Wc = (lerp(Vc / Vclen, Wp, min(Vclen - 0.5f, 0.0) / fGamma));
-#else
 	float2 Wc = (lerp(Wp, Vc / Vclen, min(Vclen - 0.5f, 0.0f) / fGamma));
-#endif
 	
 	float total_weight = fN / (fKappa * Vclen);
 	float4 result = Cx * total_weight;
@@ -134,23 +129,9 @@ float4 main(VSOutput input) : SV_TARGET
 		
 		float Vslen = length(Vs) + gfEpsilon;
 		float weight = 0.0f;
-#if 1
 		float Wa = abs(dot(Wc, d));
-#else
-		float Wa = saturate(dot(Wc, d));
-#endif
-		if (Wa < 0.0f)	return float4(Vn, 0.0f, 1.0f);
-#if 0
-		float Vslenhalf = clamp(Vslen, gfEpsilon, 1.0f);
-#else
 		float Vslenhalf = clamp(Vslen, gfEpsilon, 0.5f);
-#endif
-#if 1
 		float Wb = abs(dot(Vs / Vslenhalf, d));
-#else
-		float Wb = saturate(dot(Vs / Vslenhalf, d));
-#endif
-		if (Wb < 0.0f)	return 0;
 
 		weight += f * cone(T, 1.0f / Vslen) * Wb;
 		weight += b * cone(T, 1.0f / Vclen) * Wa;
