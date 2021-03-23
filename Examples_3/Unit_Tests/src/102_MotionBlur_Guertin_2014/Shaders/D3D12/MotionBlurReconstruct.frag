@@ -133,7 +133,7 @@ float4 main(VSOutput input) : SV_TARGET
 	[loop]
 	for (float i = 0.0f; i < fN; i += 1.0f)
 	{
-		float t = lerp(-params.z, params.z, (i + j_prime + 1.0f) / (fN + 1.0f));
+		float t = lerp(-fr, fr, (i + j_prime + 1.0f) / (fN + 1.0f));
 #if USE_TILE_VARIANCE
 		if (0u == Nsamples[iu])
 		{

@@ -81,7 +81,7 @@ struct UniformCamData
 constexpr float cMotionBlurK = 20.0f;
 float gMotionBlurExposureTime = 0.75f; // seconds
 float gMotionBlurPixelsCount = 5.0f;
-float gMotionBlurSamplesCount = 35.0f;
+float gMotionBlurSamplesCount = 15.0f;
 bool gMotionBlurCompute = false;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
@@ -2066,7 +2066,7 @@ public:
 			1.0f / static_cast<float>(mSettings.mWidth),
 			1.0f / static_cast<float>(mSettings.mHeight)
 		);
-
+		
 		gUniformDataMotionBlur.mReconstructParams = vec4(
 			gMotionBlurSamplesCount,
 			cFar,
