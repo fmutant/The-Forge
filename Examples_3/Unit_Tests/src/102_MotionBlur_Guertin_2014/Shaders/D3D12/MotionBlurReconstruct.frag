@@ -3,9 +3,12 @@ Texture2D<float> DepthTexture : register(t9);
 Texture2D<float2> VelocityTexture : register(t10);
 //Texture2D<float2> TileMaxTexture : register(t11);
 Texture2D<float2> NeighborMaxTexture : register(t12);
+Texture2D<float> VarianceTexture : register(t13);
 
 static const float gfPI = 3.14159265359f;
 static const float gfEpsilon = 1e-6f;
+
+#define USE_TILE_VARIANCE 1
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
@@ -114,11 +117,36 @@ float4 main(VSOutput input) : SV_TARGET
 	
 	float j_prime = j * fEta * fPhi / fN;
 	uint iu = 0u;
+
+#if USE_TILE_VARIANCE
+	float variance = VarianceTexture.Sample(nearestSamplerBorderZero, uv0);
+	uint Nsamples[2] = {
+		variance * fN,
+		(1.0f - variance) * fN
+	};
+	float2 Nvectors[2] = {
+		Vc,
+		Vn
+	};
+#endif
+
 	[loop]
 	for (float i = 0.0f; i < fN; i += 1.0f)
 	{
 		float t = lerp(-params.z, params.z, (i + j_prime + 1.0f) / (fN + 1.0f));
+#if USE_TILE_VARIANCE
+		if (0u == Nsamples[iu])
+		{
+			iu = 1u - iu;
+		}
+		float2 d = Nvectors[iu];
+		--Nsamples[iu];
+		iu = 1u - iu;
+#else
 		float2 d = (iu & 0x1u) ? Vc : Vn;
+		++iu;
+#endif
+		
 		float T = t * Vnlen;
 		float2 S = uv0 + t * d * consts.zw;
 		float2 Vs = VelocityTexture.Sample(nearestSamplerBorderZero, S);

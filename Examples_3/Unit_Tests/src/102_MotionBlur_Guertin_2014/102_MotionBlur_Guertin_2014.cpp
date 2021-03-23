@@ -2757,7 +2757,9 @@ public:
 			MotionBlurReconstructParams[4].ppTextures = &pTileMaxBuffer->pTexture;*/
 			MotionBlurReconstructParams[4].pName = "NeighborMaxTexture";
 			MotionBlurReconstructParams[4].ppTextures = &pNeighborMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pMotionBlurReconstructDescriptorSet[0], 5, MotionBlurReconstructParams);
+			MotionBlurReconstructParams[5].pName = "VarianceTexture";
+			MotionBlurReconstructParams[5].ppTextures = &pTileVarianceBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pMotionBlurReconstructDescriptorSet[0], 6, MotionBlurReconstructParams);
 		}
 		//compute
 		{
