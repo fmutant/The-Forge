@@ -1,13 +1,6 @@
 RWTexture2D<float2> NeighborMax: register(u0);
 Texture2D<float2> TileMaxTexture : register(t11);
 
-cbuffer cbMotionBlurConsts : register(b3)
-{
-	float4 mConsts;
-}
-
-SamplerState nearestSamplerBorderZero : register(s6);
-
 float2 vmax_axis(float2 s, float2 v)
 {
 	bool is_greater = dot(v, v) < dot(s, s);
@@ -31,8 +24,8 @@ float2 vmax_diag(float2 s, float2 v, float2 to_center_norm)
 void main(int3 DTid: SV_DispatchThreadID)
 {
 	float2 s;
-	int3 coords = int3(DTid.xy, 0);
 	
+	int3 coords = int3(DTid.xy, 0);	
 	float2 neighbor_max = TileMaxTexture.Load(coords);
 	s = TileMaxTexture.Load(coords, int2(-1,  0));
 	neighbor_max = vmax_axis(s, neighbor_max);
