@@ -8,26 +8,49 @@ cbuffer cbMotionBlurConsts : register(b3)
 
 SamplerState nearestSamplerBorderZero : register(s6);
 
-float2 vmax(float2 v0, float2 v1)
+float2 vmax_axis(float2 s, float2 v)
 {
-	return dot(v0, v0) < dot(v1, v1) ? v1 : v0;
+	bool is_greater = dot(v, v) < dot(s, s);
+	return is_greater ? s : v;
+}
+
+float2 vmax_diag(float2 s, float2 v, float2 to_center_norm)
+{
+	// to calc cos of angle between diag and center tile we would need euclidean distance from
+	// center of this tile to center of center tile + half-tile offset in perpendicular direction
+	// so, if center tile is (1.5, 1.5) and this tile is (0.5, 0.5) then the third point would be (2.0, 1.0) or (1.0, 2.0)
+	// and the cos equals to 2 * sqrt(0.2) ~ 0.894427191f
+	
+	static const float min_cos = 0.894427191f;
+	bool is_affecting_center = min_cos < dot(s / (length(s) + 1e-06f), to_center_norm);
+	bool is_greater = dot(v, v) < dot(s, s);
+	return is_greater && is_affecting_center ? s : v;
 }
 
 [numthreads(16, 1, 1)]
 void main(int3 DTid: SV_DispatchThreadID)
 {
-	float2 uv_tile_diff = mConsts.xx * mConsts.zw;
-	float2 uv = float2(DTid.xy) * uv_tile_diff;
+	float2 s;
+	int3 coords = int3(DTid.xy, 0);
 	
-	float2 neighbor_max = float2(0.0f, 0.0f);
-	for (float i = -1.0f; i <= 1.0f; i += 1.0f)
-	{
-		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
-		{
-			float2 uv_sample = uv + float2(i, j) * uv_tile_diff;
-			float2 tilemax = TileMaxTexture.SampleLevel(nearestSamplerBorderZero, uv_sample, 0);
-			neighbor_max = vmax(tilemax, neighbor_max);
-		}
-	}
+	float2 neighbor_max = TileMaxTexture.Load(coords);
+	s = TileMaxTexture.Load(coords, int2(-1,  0));
+	neighbor_max = vmax_axis(s, neighbor_max);
+	s = TileMaxTexture.Load(coords, int2( 1,  0));
+	neighbor_max = vmax_axis(s, neighbor_max);
+	s = TileMaxTexture.Load(coords, int2( 0, -1));
+	neighbor_max = vmax_axis(s, neighbor_max);
+	s = TileMaxTexture.Load(coords, int2( 0,  1));
+	neighbor_max = vmax_axis(s, neighbor_max);
+	
+	s = TileMaxTexture.Load(coords, int2(-1, -1));
+	neighbor_max = vmax_diag(s, neighbor_max, float2( 0.70710678118f,  0.70710678118f));
+	s = TileMaxTexture.Load(coords, int2( 1, -1));
+	neighbor_max = vmax_diag(s, neighbor_max, float2(-0.70710678118f,  0.70710678118f));
+	s = TileMaxTexture.Load(coords, int2(-1,  1));
+	neighbor_max = vmax_diag(s, neighbor_max, float2( 0.70710678118f, -0.70710678118f));
+	s = TileMaxTexture.Load(coords, int2( 1,  1));
+	neighbor_max = vmax_diag(s, neighbor_max, float2(-0.70710678118f, -0.70710678118f));
+	
 	NeighborMax[DTid.xy] = neighbor_max;
 }

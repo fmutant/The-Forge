@@ -2735,14 +2735,12 @@ public:
 		}
 		//compute
 		{
-			DescriptorData MotionBlurNeighborMaxParams[3] = {};
-			MotionBlurNeighborMaxParams[0].pName = "cbMotionBlurConsts";
-			MotionBlurNeighborMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
-			MotionBlurNeighborMaxParams[1].pName = "TileMaxTexture";
-			MotionBlurNeighborMaxParams[1].ppTextures = &pTileMaxBuffer->pTexture;
-			MotionBlurNeighborMaxParams[2].pName = "NeighborMax";
-			MotionBlurNeighborMaxParams[2].ppTextures = &pNeighborMaxBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pMotionBlurNeighborMaxDescriptorSetCompute[0], 3, MotionBlurNeighborMaxParams);
+			DescriptorData MotionBlurNeighborMaxParams[2] = {};
+			MotionBlurNeighborMaxParams[0].pName = "TileMaxTexture";
+			MotionBlurNeighborMaxParams[0].ppTextures = &pTileMaxBuffer->pTexture;
+			MotionBlurNeighborMaxParams[1].pName = "NeighborMax";
+			MotionBlurNeighborMaxParams[1].ppTextures = &pNeighborMaxBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pMotionBlurNeighborMaxDescriptorSetCompute[0], 2, MotionBlurNeighborMaxParams);
 		}
 		//Motion blur Reconstruct
 		{
