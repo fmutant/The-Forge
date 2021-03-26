@@ -789,13 +789,9 @@ public:
 				ShaderLoadDesc MotionBlurNeighborMaxShaderDesc = {};
 				MotionBlurNeighborMaxShaderDesc.mStages[0] = { "MotionBlurNeighborMax.comp", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurNeighborMaxShaderDesc, &pMotionBlurNeighborMaxShaderCompute);
-				const char* pStaticSamplerforNeighborMaxNames[] = { "nearestSamplerBorderZero" };
-				Sampler*    pStaticSamplersforNeighborMax[] = { pSamplerNearestBorderZero };
 
 				RootSignatureDesc MotionBlurNeighborMaxRootDesc = { &pMotionBlurNeighborMaxShaderCompute, 1 };
-				MotionBlurNeighborMaxRootDesc.mStaticSamplerCount = 1;
-				MotionBlurNeighborMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforNeighborMaxNames;
-				MotionBlurNeighborMaxRootDesc.ppStaticSamplers = pStaticSamplersforNeighborMax;
+				MotionBlurNeighborMaxRootDesc.mStaticSamplerCount = 0;
 				addRootSignature(pRenderer, &MotionBlurNeighborMaxRootDesc, &pMotionBlurNeighborMaxRootSignatureCompute);
 			}
 			// Reconstruct
