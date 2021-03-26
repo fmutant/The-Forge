@@ -3,10 +3,8 @@ Texture2D<float2> VelocityTexture : register(t10);
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
-	float4 consts;
+	int4 consts;
 }
-
-SamplerState nearestSamplerBorderZero : register(s6);
 
 float2 vmax(float2 v0, float2 v1)
 {
@@ -16,18 +14,18 @@ float2 vmax(float2 v0, float2 v1)
 [numthreads(16, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-	float2 uv = float2(DTid.xy) * consts.xx * consts.zw;
-	if (any(float2(1.0f, 1.0f) < uv)) return;
+	int2 coords = DTid.xy;
+	if (any(consts.zw < coords)) return;
 	
 	float2 tile_max = float2(0.0f, 0.0f);
-	for (float i = 0.0f; i < consts.x; i += 1.0f)
+	for (int i = 0; i < consts.x; ++i)
 	{
-		for (float j = 0.0f; j < consts.x; j += 1.0f)
+		for (int j = 0; j < consts.x; ++j)
 		{
-			float2 uv_sample = uv + float2(i, j) * consts.zw;
-			float2 velocity = VelocityTexture.SampleLevel(nearestSamplerBorderZero, uv_sample, 0);
+			int2 offset = int2(i, j);
+			float2 velocity = VelocityTexture.Load(int3(coords + offset, 0));
 			tile_max = vmax(velocity, tile_max);
 		}
 	}
-	TileMax[DTid.xy] = tile_max;
+	TileMax[coords] = tile_max;
 }

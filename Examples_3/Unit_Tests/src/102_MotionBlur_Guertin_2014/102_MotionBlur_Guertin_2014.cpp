@@ -90,6 +90,12 @@ struct UniformMotionBlurData
 	vec4 mReconstructParams; // x -> Za, y -> Zb, z -> Z_SOFT_EXTENT, w -> Samples count
 };
 
+struct UniformMotionBlurDataCompute
+{
+	int4 mConstsInt; //x -> k, y -> 0, z -> width, w -> height
+	vec4 mReconstructParams; // x -> Za, y -> Zb, z -> Z_SOFT_EXTENT, w -> Samples count
+};
+
 // Have a uniform for extended camera data
 struct UniformExtendedCamData
 {
@@ -419,7 +425,9 @@ UniformCamData gUniformDataCamera;
 UniformCamData gUniformDataSky;
 
 Buffer*				  pBufferUniformMotionBlur = { nullptr };
+Buffer*				  pBufferUniformMotionBlurCompute = { nullptr };
 UniformMotionBlurData gUniformDataMotionBlur;
+UniformMotionBlurDataCompute gUniformDataMotionBlurCompute;
 
 Buffer*                pBufferUniformExtendedCamera[gImageCount] = { NULL };
 UniformExtendedCamData gUniformDataExtenedCamera;
@@ -731,13 +739,9 @@ public:
 				ShaderLoadDesc MotionBlurTileMaxShaderDesc = {};
 				MotionBlurTileMaxShaderDesc.mStages[0] = { "MotionBlurTileMax.comp", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurTileMaxShaderDesc, &pMotionBlurTileMaxShaderCompute);
-				const char* pStaticSamplerforTileMaxNames[] = { "nearestSamplerBorderZero" };
-				Sampler*    pStaticSamplersforTileMax[] = { pSamplerNearestBorderZero };
 
 				RootSignatureDesc MotionBlurTileMaxRootDesc = { &pMotionBlurTileMaxShaderCompute, 1 };
-				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 1;
-				MotionBlurTileMaxRootDesc.ppStaticSamplerNames = pStaticSamplerforTileMaxNames;
-				MotionBlurTileMaxRootDesc.ppStaticSamplers = pStaticSamplersforTileMax;
+				MotionBlurTileMaxRootDesc.mStaticSamplerCount = 0;
 				addRootSignature(pRenderer, &MotionBlurTileMaxRootDesc, &pMotionBlurTileMaxRootSignatureCompute);
 			}
 			//TileVariance rasterization
@@ -986,6 +990,10 @@ public:
 		//for (uint32_t i = 0; i < gImageCount; ++i)
 		{
 			ubMotionBlurDesc.ppBuffer = &pBufferUniformMotionBlur;
+			addResource(&ubMotionBlurDesc, nullptr);
+		}
+		{
+			ubMotionBlurDesc.ppBuffer = &pBufferUniformMotionBlurCompute;
 			addResource(&ubMotionBlurDesc, nullptr);
 		}
 
@@ -1274,6 +1282,7 @@ public:
 			removeResource(pBufferUniformCamera[i]);
 		}
 		removeResource(pBufferUniformMotionBlur);
+		removeResource(pBufferUniformMotionBlurCompute);
 
 		removeResource(pBufferUniformLights);
 		removeResource(pBufferUniformDirectionalLights);
@@ -2052,20 +2061,35 @@ public:
 		gUniformDataCamera.mFarOverNear = cFar / cNear;
 		gUniformDataCamera.mCamPos = pCameraController->getViewPosition();
 
-		gUniformDataCamera.mMotionBlurParams = gUniformDataMotionBlur.mConsts = vec4(
-			cMotionBlurK,
-			gMotionBlurExposureTime / deltaTime,
-			1.0f / static_cast<float>(mSettings.mWidth),
-			1.0f / static_cast<float>(mSettings.mHeight)
-		);
+		{
+			gUniformDataCamera.mMotionBlurParams = gUniformDataMotionBlur.mConsts = vec4(
+				cMotionBlurK,
+				gMotionBlurExposureTime / deltaTime,
+				1.0f / static_cast<float>(mSettings.mWidth),
+				1.0f / static_cast<float>(mSettings.mHeight)
+			);
 		
-		gUniformDataMotionBlur.mReconstructParams = vec4(
-			gMotionBlurSamplesCount,
-			cFar,
-			gMotionBlurPixelsCount,
-			0.1f
-		);
-
+			gUniformDataMotionBlur.mReconstructParams = vec4(
+				gMotionBlurSamplesCount,
+				cFar,
+				gMotionBlurPixelsCount,
+				0.1f
+			);
+		}
+		{
+			gUniformDataMotionBlurCompute.mConstsInt = int4(
+				int32_t(cMotionBlurK),
+				0,
+				mSettings.mWidth,
+				mSettings.mHeight
+			);
+			gUniformDataMotionBlurCompute.mReconstructParams = vec4(
+				gMotionBlurSamplesCount,
+				cFar,
+				gMotionBlurPixelsCount,
+				0.1f
+			);
+		}
 		viewMat.setTranslation(vec3(0));
 		gUniformDataSky = gUniformDataCamera;
 		gUniformDataSky.mProjectView = projMat * viewMat;
@@ -2136,12 +2160,18 @@ public:
 			waitForFences(pRenderer, 1, &pRenderCompleteFence);
 
 		resetCmdPool(pRenderer, pCmdPools[gFrameIndex]);
-
-		BufferUpdateDesc motionBlurUpdateDesc = { pBufferUniformMotionBlur };
-		beginUpdateResource(&motionBlurUpdateDesc);
-		*(UniformMotionBlurData*)motionBlurUpdateDesc.pMappedData = gUniformDataMotionBlur;
-		endUpdateResource(&motionBlurUpdateDesc, nullptr);
-
+		{
+			BufferUpdateDesc motionBlurUpdateDesc = { pBufferUniformMotionBlur };
+			beginUpdateResource(&motionBlurUpdateDesc);
+			*(UniformMotionBlurData*)motionBlurUpdateDesc.pMappedData = gUniformDataMotionBlur;
+			endUpdateResource(&motionBlurUpdateDesc, nullptr);
+		}
+		{
+			BufferUpdateDesc motionBlurUpdateDesc = { pBufferUniformMotionBlurCompute };
+			beginUpdateResource(&motionBlurUpdateDesc);
+			*(UniformMotionBlurDataCompute*)motionBlurUpdateDesc.pMappedData = gUniformDataMotionBlurCompute;
+			endUpdateResource(&motionBlurUpdateDesc, nullptr);
+		}
 		BufferUpdateDesc camBuffUpdateDesc = { pBufferUniformCamera[gFrameIndex] };
 		beginUpdateResource(&camBuffUpdateDesc);
 		*(UniformCamData*)camBuffUpdateDesc.pMappedData = gUniformDataCamera;
@@ -2689,7 +2719,7 @@ public:
 		{
 			DescriptorData MotionBlurTileMaxParams[3] = {};
 			MotionBlurTileMaxParams[0].pName = "cbMotionBlurConsts";
-			MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlur;
+			MotionBlurTileMaxParams[0].ppBuffers = &pBufferUniformMotionBlurCompute;
 			MotionBlurTileMaxParams[1].pName = "VelocityTexture";
 			MotionBlurTileMaxParams[1].ppTextures = &pRenderTargetDeferredPass[0][3]->pTexture;
 			MotionBlurTileMaxParams[2].pName = "TileMax";
