@@ -43,7 +43,7 @@ float2 main(VSOutput input) : SV_TARGET
 	neighbor_max = vmax_diag(s, neighbor_max, float2(-1.0f, -1.0f));
 	s = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 1.0f, -1.0f));
 	neighbor_max = vmax_diag(s, neighbor_max, float2( 1.0f, -1.0f));
-	s = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 1.0f, -1.0f));
+	s = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2(-1.0f,  1.0f));
 	neighbor_max = vmax_diag(s, neighbor_max, float2(-1.0f,  1.0f));
 	s = TileMaxTexture.Sample(nearestSamplerBorderZero, uv_tile + uv_tile_diff * float2( 1.0f,  1.0f));
 	neighbor_max = vmax_diag(s, neighbor_max, float2( 1.0f,  1.0f));
