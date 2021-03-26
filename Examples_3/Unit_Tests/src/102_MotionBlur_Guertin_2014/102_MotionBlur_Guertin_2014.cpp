@@ -760,13 +760,9 @@ public:
 				ShaderLoadDesc MotionBlurTileVarianceShaderDesc = {};
 				MotionBlurTileVarianceShaderDesc.mStages[0] = { "MotionBlurTileVariance.comp", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurTileVarianceShaderDesc, &pMotionBlurTileVarianceShaderCompute);
-				const char* pStaticSamplerforTileVarianceNames[] = { "pSamplerNearestEdge" };
-				Sampler*    pStaticSamplersforTileVariance[] = { pSamplerNearestEdge };
 
 				RootSignatureDesc MotionBlurTileVarianceRootDesc = { &pMotionBlurTileVarianceShaderCompute, 1 };
-				MotionBlurTileVarianceRootDesc.mStaticSamplerCount = 1;
-				MotionBlurTileVarianceRootDesc.ppStaticSamplerNames = pStaticSamplerforTileVarianceNames;
-				MotionBlurTileVarianceRootDesc.ppStaticSamplers = pStaticSamplersforTileVariance;
+				MotionBlurTileVarianceRootDesc.mStaticSamplerCount = 0;
 				addRootSignature(pRenderer, &MotionBlurTileVarianceRootDesc, &pMotionBlurTileVarianceRootSignatureCompute);
 			}
 			// NeighborMax
@@ -2712,13 +2708,11 @@ public:
 		//compute
 		{
 			DescriptorData MotionBlurTileVarianceParams[3] = {};
-			MotionBlurTileVarianceParams[0].pName = "cbMotionBlurConsts";
-			MotionBlurTileVarianceParams[0].ppBuffers = &pBufferUniformMotionBlur;
-			MotionBlurTileVarianceParams[1].pName = "TileMaxTexture";
-			MotionBlurTileVarianceParams[1].ppTextures = &pTileMaxBuffer->pTexture;
-			MotionBlurTileVarianceParams[2].pName = "TileVariance";
-			MotionBlurTileVarianceParams[2].ppTextures = &pTileVarianceBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pMotionBlurTileVarianceDescriptorSetCompute[0], 3, MotionBlurTileVarianceParams);
+			MotionBlurTileVarianceParams[0].pName = "TileMaxTexture";
+			MotionBlurTileVarianceParams[0].ppTextures = &pTileMaxBuffer->pTexture;
+			MotionBlurTileVarianceParams[1].pName = "TileVariance";
+			MotionBlurTileVarianceParams[1].ppTextures = &pTileVarianceBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pMotionBlurTileVarianceDescriptorSetCompute[0], 2, MotionBlurTileVarianceParams);
 		}
 		//Motion blur NeighborMax
 		{
