@@ -93,6 +93,7 @@ struct UniformMotionBlurData
 struct UniformMotionBlurDataCompute
 {
 	int4 mConstsInt; //x -> k, y -> 0, z -> width, w -> height
+	int4 mSizesInt;
 	vec4 mReconstructParams; // x -> Za, y -> Zb, z -> Z_SOFT_EXTENT, w -> Samples count
 };
 
@@ -2083,6 +2084,12 @@ public:
 				mSettings.mWidth,
 				mSettings.mHeight
 			);
+			gUniformDataMotionBlurCompute.mSizesInt = int4(
+				mSettings.mWidth,
+				mSettings.mHeight,
+				int32_t(ceilf(mSettings.mWidth / cMotionBlurK)),
+				int32_t(ceilf(mSettings.mHeight / cMotionBlurK))
+			);
 			gUniformDataMotionBlurCompute.mReconstructParams = vec4(
 				gMotionBlurSamplesCount,
 				gMotionBlurPixelsCount,
@@ -2133,7 +2140,7 @@ public:
 			endUpdateResource(&lion_objBuffUpdateDesc, nullptr);
 		}
 
-
+		
 		SyncToken currentProgress = getLastTokenCompleted();
 		double    progress = (double)(currentProgress - gResourceSyncStartToken) / (double)(gResourceSyncToken - gResourceSyncStartToken);
 		mProgressBarValue = (size_t)(mProgressBarValueMax * progress);
@@ -2425,6 +2432,17 @@ public:
 		}
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "MotionBlur");
 		{
+			float tilemax_dispatch_size_x = ceilf(pTileMaxBuffer->mWidth / 16.0f);
+			float tilemax_dispatch_size_y = ceilf(pTileMaxBuffer->mHeight / 4.0f);
+			
+			float variance_dispatch_size_x = ceilf(pTileVarianceBuffer->mWidth / 8.0f);
+			float variance_dispatch_size_y = ceilf(pTileVarianceBuffer->mHeight / 2.0f);
+
+			float neighbor_dispatch_size_x = ceilf(pNeighborMaxBuffer->mWidth / 8.0f);
+			float neighbor_dispatch_size_y = ceilf(pNeighborMaxBuffer->mHeight / 2.0f);
+
+			float full_dispatch_size_x = ceilf(pVelocityBuffer->mWidth / 32.0f);
+			float full_dispatch_size_y = ceilf(pVelocityBuffer->mHeight / 1.0f);
 			if (gMotionBlurCompute)
 			{
 				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
@@ -2432,7 +2450,7 @@ public:
 				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileMax");
 				cmdBindPipeline(cmd, pMotionBlurTileMaxPipelineCompute);
 				cmdBindDescriptorSet(cmd, 0, pMotionBlurTileMaxDescriptorSetCompute[0]);
-				cmdDispatch(cmd, pTileMaxBuffer->mWidth >> 4, pTileMaxBuffer->mHeight, 1);
+				cmdDispatch(cmd, int32_t(tilemax_dispatch_size_x), int32_t(tilemax_dispatch_size_y), 1);
 				rtBarriers[0] = { pTileMaxBuffer, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
 				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 			}
@@ -2460,7 +2478,7 @@ public:
 				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TileVariance");
 				cmdBindPipeline(cmd, pMotionBlurTileVariancePipelineCompute);
 				cmdBindDescriptorSet(cmd, 0, pMotionBlurTileVarianceDescriptorSetCompute[0]);
-				cmdDispatch(cmd, pTileVarianceBuffer->mWidth >> 4, pTileVarianceBuffer->mHeight, 1);
+				cmdDispatch(cmd, uint32_t(variance_dispatch_size_x), uint32_t(variance_dispatch_size_y), 1);
 				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 				rtBarriers[4] = { pTileVarianceBuffer, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
 			}
@@ -2488,7 +2506,7 @@ public:
 				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "NeighborMax");
 				cmdBindPipeline(cmd, pMotionBlurNeighborMaxPipelineCompute);
 				cmdBindDescriptorSet(cmd, 0, pMotionBlurNeighborMaxDescriptorSetCompute[0]);
-				cmdDispatch(cmd, pNeighborMaxBuffer->mWidth >> 4, pNeighborMaxBuffer->mHeight, 1);
+				cmdDispatch(cmd, uint32_t(neighbor_dispatch_size_x), uint32_t(neighbor_dispatch_size_y), 1);
 				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 				rtBarriers[0] = { pNeighborMaxBuffer, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
 			}
@@ -2520,7 +2538,7 @@ public:
 				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Reconstruct");
 				cmdBindPipeline(cmd, pMotionBlurReconstructPipelineCompute);
 				cmdBindDescriptorSet(cmd, 0, pMotionBlurReconstructDescriptorSetCompute[0]);
-				cmdDispatch(cmd, pMotionBlurredBuffer->mWidth >> 5, pMotionBlurredBuffer->mHeight, 1);
+				cmdDispatch(cmd, uint32_t(full_dispatch_size_x), uint32_t(full_dispatch_size_y), 1);
 				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 				rtBarriers[0] = { pMotionBlurredBuffer, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
 			}

@@ -20,7 +20,7 @@ float2 vmax_diag(float2 s, float2 v, float2 to_center_norm)
 	return is_greater && is_affecting_center ? s : v;
 }
 
-[numthreads(16, 1, 1)]
+[numthreads(8, 2, 1)]
 void main(int3 DTid: SV_DispatchThreadID)
 {
 	float2 s;

@@ -1,7 +1,7 @@
 RWTexture2D<float2> TileVariance: register(u0);
 Texture2D<float2> TileMaxTexture : register(t11);
 
-[numthreads(16, 1, 1)]
+[numthreads(8, 2, 1)]
 void main(int3 DTid: SV_DispatchThreadID)
 {
 	float tile_variance = 0.0f;
