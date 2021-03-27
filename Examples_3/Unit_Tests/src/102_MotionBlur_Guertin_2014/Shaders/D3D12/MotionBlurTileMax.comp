@@ -14,7 +14,7 @@ float2 vmax(float2 v0, float2 v1)
 [numthreads(16, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-	int2 coords = DTid.xy;
+	int2 coords = DTid.xy * consts.xx;
 	if (any(consts.zw < coords)) return;
 	
 	float2 tile_max = float2(0.0f, 0.0f);
