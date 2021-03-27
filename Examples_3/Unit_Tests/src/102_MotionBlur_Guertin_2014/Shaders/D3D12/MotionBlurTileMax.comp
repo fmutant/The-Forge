@@ -18,8 +18,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
 	if (any(consts.zw < coords)) return;
 	
 	float2 tile_max = float2(0.0f, 0.0f);
+	[loop]
 	for (int i = 0; i < consts.x; ++i)
 	{
+		[loop]
 		for (int j = 0; j < consts.x; ++j)
 		{
 			int2 offset = int2(i, j);
