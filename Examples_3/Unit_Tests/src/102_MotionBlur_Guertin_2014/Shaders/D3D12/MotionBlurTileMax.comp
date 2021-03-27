@@ -29,5 +29,5 @@ void main(uint3 DTid : SV_DispatchThreadID)
 			tile_max = vmax(velocity, tile_max);
 		}
 	}
-	TileMax[coords] = tile_max;
+	TileMax[DTid.xy] = tile_max;
 }
