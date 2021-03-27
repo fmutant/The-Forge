@@ -14,6 +14,7 @@ static const float gfEpsilon = 1e-6f;
 cbuffer cbMotionBlurConsts : register(b3)
 {
 	int4 consts;
+	int4 sizes;
 	float4 params;
 }
 
@@ -72,6 +73,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 	float4 Cx = SceneTexture.Load(int3(xy_pixel, 0));
 	float2 Vn = NeighborMaxTexture.Load(int3(xy_tile + sOffset(j), 0));
 	float Vnlen = length(Vn);
+	[branch]
 	if (Vnlen <= 0.01f)
 	{
 		MotionBlurTexture[DTid.xy] = Cx;
@@ -79,7 +81,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 	}
 	
 	float Zp = DepthTexture.Load(int3(xy_pixel, 0));
-	float2 Vc = VelocityTexture.Load(int3(xy_tile, 0));
+	float2 Vc = VelocityTexture.Load(int3(xy_pixel, 0));
 	float Vclen = length(Vc) + gfEpsilon;
 	
 	float2 Wn = normalize(Vn);
@@ -123,7 +125,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 #endif
 		
 		float T = t * Vnlen;
-		float2 S = uv0 + t * d * consts.zw;
+		float2 S = uv0 + t * d * params.zw;
 		float2 Vs = VelocityTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float4 Cs = SceneTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float Zs = DepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);

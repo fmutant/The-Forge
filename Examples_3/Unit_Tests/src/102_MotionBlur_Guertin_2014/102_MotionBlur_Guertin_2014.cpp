@@ -2084,6 +2084,7 @@ public:
 				mSettings.mWidth,
 				mSettings.mHeight
 			);
+
 			gUniformDataMotionBlurCompute.mSizesInt = int4(
 				mSettings.mWidth,
 				mSettings.mHeight,
@@ -2801,9 +2802,9 @@ public:
 		}
 		//compute
 		{
-			DescriptorData MotionBlurReconstructParams[6] = {};
+			DescriptorData MotionBlurReconstructParams[7] = {};
 			MotionBlurReconstructParams[0].pName = "cbMotionBlurConsts";
-			MotionBlurReconstructParams[0].ppBuffers = &pBufferUniformMotionBlur;
+			MotionBlurReconstructParams[0].ppBuffers = &pBufferUniformMotionBlurCompute;
 			MotionBlurReconstructParams[1].pName = "SceneTexture";
 			MotionBlurReconstructParams[1].ppTextures = &pSceneBuffer->pTexture;
 			MotionBlurReconstructParams[2].pName = "DepthTexture";
@@ -2814,9 +2815,11 @@ public:
 			MotionBlurReconstructParams[4].ppTextures = &pTileMaxBuffer->pTexture;*/
 			MotionBlurReconstructParams[4].pName = "NeighborMaxTexture";
 			MotionBlurReconstructParams[4].ppTextures = &pNeighborMaxBuffer->pTexture;
-			MotionBlurReconstructParams[5].pName = "MotionBlurTexture";
-			MotionBlurReconstructParams[5].ppTextures = &pMotionBlurredBuffer->pTexture;
-			updateDescriptorSet(pRenderer, 0, pMotionBlurReconstructDescriptorSetCompute[0], 6, MotionBlurReconstructParams);
+			MotionBlurReconstructParams[5].pName = "VarianceTexture";
+			MotionBlurReconstructParams[5].ppTextures = &pTileVarianceBuffer->pTexture;
+			MotionBlurReconstructParams[6].pName = "MotionBlurTexture";
+			MotionBlurReconstructParams[6].ppTextures = &pMotionBlurredBuffer->pTexture;
+			updateDescriptorSet(pRenderer, 0, pMotionBlurReconstructDescriptorSetCompute[0], 7, MotionBlurReconstructParams);
 		}
 	}
 
@@ -2976,8 +2979,8 @@ public:
 	bool addTileMaxBuffer()
 	{
 		RenderTargetDesc tilemaxRT = {};
-		tilemaxRT.mWidth = static_cast<uint32_t>(mSettings.mWidth / cMotionBlurK);
-		tilemaxRT.mHeight = static_cast<uint32_t>(mSettings.mHeight / cMotionBlurK);
+		tilemaxRT.mWidth = static_cast<uint32_t>(ceilf(mSettings.mWidth / cMotionBlurK));
+		tilemaxRT.mHeight = static_cast<uint32_t>(ceilf(mSettings.mHeight / cMotionBlurK));
 		tilemaxRT.mArraySize = 1;
 		tilemaxRT.mDepth = 1;
 		tilemaxRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
@@ -2995,8 +2998,8 @@ public:
 	bool addTileVarianceBuffer()
 	{
 		RenderTargetDesc tilevarianceRT = {};
-		tilevarianceRT.mWidth = static_cast<uint32_t>(mSettings.mWidth / cMotionBlurK);
-		tilevarianceRT.mHeight = static_cast<uint32_t>(mSettings.mHeight / cMotionBlurK);
+		tilevarianceRT.mWidth = static_cast<uint32_t>(ceilf(mSettings.mWidth / cMotionBlurK));
+		tilevarianceRT.mHeight = static_cast<uint32_t>(ceilf(mSettings.mHeight / cMotionBlurK));
 		tilevarianceRT.mArraySize = 1;
 		tilevarianceRT.mDepth = 1;
 		tilevarianceRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
@@ -3014,8 +3017,8 @@ public:
 	bool addNeighborMaxBuffer()
 	{
 		RenderTargetDesc neighborRT = {};
-		neighborRT.mWidth = static_cast<uint32_t>(mSettings.mWidth / cMotionBlurK);
-		neighborRT.mHeight = static_cast<uint32_t>(mSettings.mHeight / cMotionBlurK);
+		neighborRT.mWidth = static_cast<uint32_t>(ceilf(mSettings.mWidth / cMotionBlurK));
+		neighborRT.mHeight = static_cast<uint32_t>(ceilf(mSettings.mHeight / cMotionBlurK));
 		neighborRT.mArraySize = 1;
 		neighborRT.mDepth = 1;
 		neighborRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
