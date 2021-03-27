@@ -4,88 +4,145 @@ Texture2D<float> DepthTexture : register(t9);
 Texture2D<float2> VelocityTexture : register(t10);
 //Texture2D<float2> TileMaxTexture : register(t11);
 Texture2D<float2> NeighborMaxTexture : register(t12);
+Texture2D<float> VarianceTexture : register(t13);
+
+static const float gfPI = 3.14159265359f;
+static const float gfEpsilon = 1e-6f;
+
+#define USE_TILE_VARIANCE 1
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
-	float4 consts;
+	int4 consts;
 	float4 params;
 }
 
 SamplerState nearestSamplerBorderZero : register(s6);
 
-float random_half(float2 _st) {
-    return frac(sin(dot(_st.xy,
-                         float2(12.9898f, 78.233f))) *
-        43758.5453123f)- 0.5f;
-}
-
 float cone(float uvdiff, float vlen)
 {
-	return saturate(1.0f - uvdiff / vlen);
+	return saturate(1.0f - uvdiff * vlen);
 }
 float cylinder(float uvdiff, float vlen)
 {
 	return 1.0f - smoothstep(0.95f * vlen, 1.05f * vlen, uvdiff);
 }
-float softDepthCompare(float Za, float Zb)
+float z_compare(float Za, float Zb)
 {
-	static const float cZExtent = 10.0f; // div by 0.1 in paper
-	return saturate(1.0f - (Za - Zb) * cZExtent);
+	return saturate(1.0f - (Za - Zb) / min(Za, Zb));
 }
 
-void Accumulate(float2 uv0, float t, float2 Vn, float vxlen, float Dx, inout float4 sum, inout float weight)
+float random(float2 sv_position)
 {
-	float2 diff = Vn * t + 0.5f;
-	diff *= consts.zw;
-	float2 uv1 = uv0 + diff;
-	float uvdiff = length(diff);
-	
-	float4 Cy = SceneTexture.SampleLevel(nearestSamplerBorderZero, uv1, 0);
-	float Dy = DepthTexture.SampleLevel(nearestSamplerBorderZero, uv1, 0);
-	float f = softDepthCompare(Dx, Dy);
-	float b = softDepthCompare(Dy, Dx);
-	
-	float2 Vy = VelocityTexture.SampleLevel(nearestSamplerBorderZero, uv1, 0);
-	float vylen = length(Vy);
-	float alpha = 	f * cone(uvdiff, vylen) +
-					b * cone(uvdiff, vxlen) +
-					2.0f * cylinder(uvdiff, vylen) * cylinder(uvdiff, vxlen);
+	//interleaved gradient noise
+	float noise_0to1 = frac(52.9829189f * frac(0.06711056f * sv_position.x + 0.00583715f * sv_position.y));
+	return noise_0to1 * 2.0f - 1.0f;
+}
 
-	weight += alpha;
-	sum += Cy * alpha;
+int2 sOffset(float j)
+{
+	int2 offsets[] = {
+		int2(-1,  0),
+		int2( 1,  0),
+		int2( 0, -1),
+		int2( 0,  1),
+	};
+	return offsets[j * 4.0f + 0.5f];
 }
 
 [numthreads(32, 1, 1)]
 void main(int3 DTid: SV_DispatchThreadId)
 {
-	float2 uv0 = float2(DTid.xy) * consts.zw;
-	float4 Cx = SceneTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
-	float2 Vn = NeighborMaxTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
-	if (length(Vn) <= 1e-6f + 0.5f)
+	float2 idf = float2(DTid.xy);
+	float2 uv0 = idf * params.zw;
+	
+	int2 xy_pixel = DTid.xy;
+	int2 xy_tile = xy_pixel / consts.xx;
+	
+	const float fN = params.x;
+	const float fr = consts.x;
+	const float fTau = 1.0f;
+	const float fKappa = 40.0f;
+	const float fEta = 0.95f;
+	const float fGamma = 1.5;
+	const float fPhi = 27.0f;
+	
+	float j = random(idf);
+	
+	float4 Cx = SceneTexture.Load(int3(xy_pixel, 0));
+	float2 Vn = NeighborMaxTexture.Load(int3(xy_tile + sOffset(j), 0));
+	float Vnlen = length(Vn);
+	if (Vnlen <= 0.01f)
 	{
 		MotionBlurTexture[DTid.xy] = Cx;
 		return;
 	}
+	
+	float Zp = DepthTexture.Load(int3(xy_pixel, 0));
+	float2 Vc = VelocityTexture.Load(int3(xy_tile, 0));
+	float Vclen = length(Vc) + gfEpsilon;
+	
+	float2 Wn = normalize(Vn);
+	float2 Wp = float2(-Wn.y, Wn.x);
+	if (dot(Wp, Vc) < 0.0f) Wp = -Wp;
+	float2 Wc = (lerp(Wp, Vc / Vclen, min(Vclen - 0.5f, 0.0f) / fGamma));
+	
+	float total_weight = fN / (fKappa * Vclen);
+	float4 result = Cx * total_weight;
+	
+	float j_prime = j * fEta * fPhi / fN;
+	uint iu = 0u;
 
-	float2 Vx = VelocityTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
-	float Vxlen = length(Vx);
-	float Dx = DepthTexture.SampleLevel(nearestSamplerBorderZero, uv0, 0);
-	float weight = 1.0f / Vxlen;
-	float4 sum = Cx * weight;
+#if USE_TILE_VARIANCE
+	float variance = VarianceTexture.Load(int3(xy_tile, 0));
+	uint Nsamples[2] = {
+		variance * fN,
+		(1.0f - variance) * fN
+	};
+	float2 Nvectors[2] = {
+		Vc,
+		Vn
+	};
+#endif
 
-	float j = random_half(uv0);
-	float params_count_inv = 1.0f / (params.x + 1.0f);
-	for (float i0 = 0.0f, e0 = params.x * 0.5f - 0.5f; i0 < e0; i0 += 1.0f)
+	[loop]
+	for (float i = 0.0f; i < fN; i += 1.0f)
 	{
-		float t = lerp(-params.z, params.z, (i0 + j + 1.0f) * params_count_inv);
-		Accumulate(uv0, t, Vn, Vxlen, Dx, sum, weight);
+		float t = lerp(-fr, fr, (i + j_prime + 1.0f) / (fN + 1.0f));
+#if USE_TILE_VARIANCE
+		if (0u == Nsamples[iu])
+		{
+			iu = 1u - iu;
+		}
+		float2 d = Nvectors[iu];
+		--Nsamples[iu];
+		iu = 1u - iu;
+#else
+		float2 d = (iu & 0x1u) ? Vc : Vn;
+		++iu;
+#endif
+		
+		float T = t * Vnlen;
+		float2 S = uv0 + t * d * consts.zw;
+		float2 Vs = VelocityTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
+		float4 Cs = SceneTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
+		float Zs = DepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
+		float f = z_compare(Zp, Zs);
+		float b = z_compare(Zs, Zp);
+		
+		float Vslen = length(Vs) + gfEpsilon;
+		float weight = 0.0f;
+		float Wa = abs(dot(Wc, d));
+		float Vslenhalf = clamp(Vslen, gfEpsilon, 0.5f);
+		float Wb = abs(dot(Vs / Vslenhalf, d));
+
+		weight += f * cone(T, 1.0f / Vslen) * Wb;
+		weight += b * cone(T, 1.0f / Vclen) * Wa;
+		weight += 2.0f * cylinder(T, min(Vslen, Vclen)) * max(Wa, Wb);
+		
+		total_weight += weight;
+		result += Cs * weight;
 	}
 
-	for (float i1 = ceil(params.x * 0.5f), e1 = params.x; i1 < e1; i1 += 1.0f)
-	{
-		float t = lerp(params.z, params.z, (i1 + j + 1.0f) * params_count_inv);
-		Accumulate(uv0, t, Vn, Vxlen, Dx, sum, weight);
-	}
-
-	MotionBlurTexture[DTid.xy] = sum / weight;
+	MotionBlurTexture[DTid.xy] = result / total_weight;
 }

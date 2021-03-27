@@ -2085,9 +2085,9 @@ public:
 			);
 			gUniformDataMotionBlurCompute.mReconstructParams = vec4(
 				gMotionBlurSamplesCount,
-				cFar,
 				gMotionBlurPixelsCount,
-				0.1f
+				1.0f / float(mSettings.mWidth),
+				1.0f / float(mSettings.mHeight)
 			);
 		}
 		viewMat.setTranslation(vec3(0));
