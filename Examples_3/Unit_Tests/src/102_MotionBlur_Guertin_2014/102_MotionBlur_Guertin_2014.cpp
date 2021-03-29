@@ -2598,7 +2598,7 @@ public:
 			float tilemaxhorz_dispatch_size_x = ceilf(pTileMaxHorzBuffer->mWidth / 16.0f);
 			float tilemaxhorz_dispatch_size_y = ceilf(pTileMaxHorzBuffer->mHeight / 8.0f);
 
-			float tilemaxvert_dispatch_size_x = ceilf(pTileMaxVertBuffer->mWidth / 1.0f);
+			float tilemaxvert_dispatch_size_x = ceilf(pTileMaxVertBuffer->mWidth / 4.0f);
 			float tilemaxvert_dispatch_size_y = ceilf(pTileMaxVertBuffer->mHeight / 16.0f);
 			
 			float variance_dispatch_size_x = ceilf(pTileVarianceBuffer->mWidth / 8.0f);
