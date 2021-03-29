@@ -74,7 +74,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 	float2 Vn = NeighborMaxTexture.Load(int3(xy_tile + sOffset(j), 0));
 	float Vnlen = length(Vn);
 	[branch]
-	if (Vnlen <= 0.01f)
+	if (Vnlen <= 0.5f)
 	{
 		MotionBlurTexture[DTid.xy] = Cx;
 		return;
@@ -83,35 +83,38 @@ void main(int3 DTid: SV_DispatchThreadId)
 	float Zp = DepthTexture.Load(int3(xy_pixel, 0));
 	float2 Vc = VelocityTexture.Load(int3(xy_pixel, 0));
 	float Vclen = length(Vc) + gfEpsilon;
-	
+    float Vcleninv = 1.0f / Vclen;
+    float2 Vcuv = Vc * params.zw;
+	float2 Vnuv = Vn * params.zw;
+    
 	float2 Wn = normalize(Vn);
 	float2 Wp = float2(-Wn.y, Wn.x);
 	if (dot(Wp, Vc) < 0.0f) Wp = -Wp;
-	float2 Wc = (lerp(Wp, Vc / Vclen, min(Vclen - 0.5f, 0.0f) / fGamma));
+	float2 Wc = (lerp(Wp, Vc * Vcleninv, min(Vclen - 0.5f, 0.0f) / fGamma));
 	
-	float total_weight = fN / (fKappa * Vclen);
+	float total_weight = fN * Vcleninv / fKappa;
 	float4 result = Cx * total_weight;
 	
-	float j_prime = j * fEta * fPhi / fN;
+    float fNinv = 1.0f / (fN + 1.0f);
+	float j_prime = j * fEta * fPhi / fN + 1.0f;
+    j_prime *= fNinv;
 	uint iu = 0u;
 
 #if USE_TILE_VARIANCE
 	float variance = VarianceTexture.Load(int3(xy_tile, 0));
-	uint Nsamples[2] = {
-		variance * fN,
-		(1.0f - variance) * fN
-	};
-	float2 Nvectors[2] = {
-		Vc,
-		Vn
+	uint Nsamples[2] = { variance * fN, (1.0f - variance) * fN };
+	const float2 Nvectors[2] = {
+		Vcuv,
+		Vnuv
 	};
 #endif
-
+	
 	[loop]
 	for (float i = 0.0f; i < fN; i += 1.0f)
 	{
-		float t = lerp(-fr, fr, (i + j_prime + 1.0f) / (fN + 1.0f));
+		float t = lerp(-fr, fr, i * fNinv + j_prime);
 #if USE_TILE_VARIANCE
+        [flatten]
 		if (0u == Nsamples[iu])
 		{
 			iu = 1u - iu;
@@ -120,12 +123,11 @@ void main(int3 DTid: SV_DispatchThreadId)
 		--Nsamples[iu];
 		iu = 1u - iu;
 #else
-		float2 d = (iu & 0x1u) ? Vc : Vn;
+		float2 d = (iu & 0x1u) ? Vcuv : Vnuv;
 		++iu;
 #endif
 		
-		float T = t * Vnlen;
-		float2 S = uv0 + t * d * params.zw;
+		float2 S = uv0 + t * d;
 		float2 Vs = VelocityTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float4 Cs = SceneTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float Zs = DepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
@@ -138,8 +140,9 @@ void main(int3 DTid: SV_DispatchThreadId)
 		float Vslenhalf = clamp(Vslen, gfEpsilon, 0.5f);
 		float Wb = abs(dot(Vs / Vslenhalf, d));
 
+		float T = t * Vnlen;
 		weight += f * cone(T, 1.0f / Vslen) * Wb;
-		weight += b * cone(T, 1.0f / Vclen) * Wa;
+		weight += b * cone(T, Vcleninv) * Wa;
 		weight += 2.0f * cylinder(T, min(Vslen, Vclen)) * max(Wa, Wb);
 		
 		total_weight += weight;
