@@ -12,7 +12,7 @@ float2 vmax(float2 v0, float2 v1)
 	return dot(v0, v0) < dot(v1, v1) ? v1 : v0;
 }
 
-[numthreads(16, 8, 1)]
+[numthreads(16, 4, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
 	if (any(sizes.zy < DTid.xy))
