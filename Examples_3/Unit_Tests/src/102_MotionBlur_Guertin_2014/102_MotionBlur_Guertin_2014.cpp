@@ -82,8 +82,8 @@ constexpr float cMotionBlurK = 20.0f;
 float gMotionBlurExposureTime = 0.75f; // seconds
 float gMotionBlurPixelsCount = 5.0f;
 float gMotionBlurSamplesCount = 15.0f;
-bool gMotionBlurCompute = false;
-bool gMotionBlurSeparable = false;
+bool gMotionBlurCompute = true;
+bool gMotionBlurSeparable = true;
 bool gMotionBlurSeparablePrev = false;
 constexpr TinyImageFormat cMotionBlurBufferFormat = TinyImageFormat_R16G16_SNORM;
 struct UniformMotionBlurData
