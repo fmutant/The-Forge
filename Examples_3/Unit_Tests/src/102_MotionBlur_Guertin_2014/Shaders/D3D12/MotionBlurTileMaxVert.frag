@@ -1,3 +1,5 @@
+#define UNORM 1
+
 Texture2D<float2> TileMaxHorzTexture : register(t0);
 
 cbuffer cbMotionBlurConsts : register(b3)
@@ -12,9 +14,12 @@ struct VSOutput {
 	float2 texcoord : TEXCOORD0;
 };
 
-float2 vmax(float2 v0, float2 v1)
+float2 vmax(float2 s, float2 v)
 {
-	return dot(v0, v0) < dot(v1, v1) ? v1 : v0;
+#if UNORM
+	s = s * 2.0f - 1.0f;
+#endif
+	return dot(s, s) < dot(v, v) ? v : s;
 }
 
 float2 main(VSOutput input) : SV_TARGET
@@ -28,5 +33,8 @@ float2 main(VSOutput input) : SV_TARGET
 		float2 velocity = TileMaxHorzTexture.Sample(nearestSamplerBorderZero, uv_sample);
 		tile_max = vmax(velocity, tile_max);
 	}
+#if UNORM
+	tile_max = tile_max * 0.5f + 0.5f;
+#endif
 	return tile_max;
 }

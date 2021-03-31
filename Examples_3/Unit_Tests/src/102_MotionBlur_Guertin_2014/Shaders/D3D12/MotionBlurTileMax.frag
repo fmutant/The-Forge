@@ -1,20 +1,25 @@
-Texture2D<float2> VelocityTexture : register(t10);
+#define UNORM 1
+
+Texture2D<float3> VelocityTexture : register(t10);
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
 	float4 mConsts;
 }
 
-SamplerState nearestSamplerBorderZero : register(s6);
+SamplerState nearestSamplerClamp : register(s6);
 
 struct VSOutput {
 	float4 position : SV_POSITION;	
 	float2 texcoord : TEXCOORD0;
 };
 
-float2 vmax(float2 v0, float2 v1)
+float2 vmax(float2 s, float2 v)
 {
-	return dot(v0, v0) < dot(v1, v1) ? v1 : v0;
+#if UNORM
+	s = s * 2.0f - 1.0f;
+#endif
+	return dot(s, s) < dot(v, v) ? v : s;
 }
 
 float2 main(VSOutput input) : SV_TARGET
@@ -26,9 +31,12 @@ float2 main(VSOutput input) : SV_TARGET
 		for (float j = 0.0f; j < mConsts.x; j += 1.0f)
 		{
 			float2 uv_sample = uv_tile + float2(i, j) * mConsts.zw;
-			float2 velocity = VelocityTexture.Sample(nearestSamplerBorderZero, uv_sample);
+			float2 velocity = VelocityTexture.Sample(nearestSamplerClamp, uv_sample).xy;
 			tile_max = vmax(velocity, tile_max);
 		}
 	}
+#if UNORM
+	tile_max = tile_max * 0.5f + 0.5f;
+#endif
 	return tile_max;
 }

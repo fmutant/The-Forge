@@ -22,7 +22,7 @@
  * under the License.
 */
 
-#define UNORM 0
+#define UNORM 1
 
 cbuffer cbCamera : register(b0, UPDATE_FREQ_PER_FRAME)
 {
@@ -100,7 +100,7 @@ struct PSOut
     float4 albedo : SV_Target0;
     float4 normal : SV_Target1;
     float4 specular : SV_Target2;
-    float2 motion : SV_Target3;
+    float3 motion : SV_Target3;
 };
 
 
@@ -152,15 +152,16 @@ PSOut main(PsIn input) : SV_TARGET
 	Out.specular = float4(_roughness, ao, input.uv);
 
 	float2 qx = input.curPosition.xy / input.curPosition.w - input.prevPosition.xy / input.prevPosition.w;
+	Out.motion.z = 1.0f - input.position.z / input.position.w;
 	
 	float len_qx = length(qx);
 	
 	float weight = max(min(len_qx * motionBlurParams.y, motionBlurParams.x), 0.5f);
 	weight /= motionBlurParams.x;
 #if UNORM
-	Out.motion = qx / (len_qx + 1e-5f) * weight * 0.5 + 0.5f;
+	Out.motion.xy = qx / (len_qx + 1e-5f) * weight * 0.5 + 0.5f;
 #else
-	Out.motion = qx / (len_qx + 1e-5f) * weight;
+	Out.motion.xy = qx / (len_qx + 1e-5f) * weight;
 #endif
 
 	return Out;

@@ -1,23 +1,46 @@
+#define UNORM 1
+
 RWTexture2D<float2> TileVariance: register(u0);
 Texture2D<float2> TileMaxTexture : register(t11);
+
+SamplerState nearestSamplerClamp : register(s0);
+
+cbuffer cbMotionBlurConsts : register(b3)
+{
+	int4 consts;
+	int4 sizesi;
+	float4 sizesf;
+}
 
 [numthreads(8, 2, 1)]
 void main(int3 DTid: SV_DispatchThreadID)
 {
-	float tile_variance = 0.0f;
-	
-	int3 coords = int3(DTid.xy, 0);
-	float2 this_tile = TileMaxTexture.Load(coords);
-	tile_variance += abs(dot(this_tile, this_tile));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2(-1, -1))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2(-1,  0))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2(-1,  1))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2( 0, -1))));
-	//tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2( 0,  0))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2( 0,  1))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2( 1, -1))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2( 1,  0))));
-	tile_variance += abs(dot(this_tile, TileMaxTexture.Load(coords, int2( 1,  1))));
-	
+	float2 this_tile = TileMaxTexture.Load(int3(DTid.xy, 0));
+#if UNORM
+	this_tile = this_tile * 2.0f - 1.0f;
+#endif
+	float tile_variance = abs(dot(this_tile, this_tile));
+	float2 coords = float2(DTid.xy) * sizesf.zw;
+#if UNORM
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1, -1)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  0)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  1)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0, -1)) * 2.0f - 1.0f));
+//	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0,  0)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0,  1)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1, -1)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1,  0)) * 2.0f - 1.0f));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1,  1)) * 2.0f - 1.0f));
+#else
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1, -1))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  0))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  1))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0, -1))));
+//	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0,  0))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0,  1))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1, -1))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1,  0))));
+	tile_variance += abs(dot(this_tile, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1,  1))));
+#endif
 	TileVariance[DTid.xy] = 1.0f - tile_variance / 9.0f;
 }

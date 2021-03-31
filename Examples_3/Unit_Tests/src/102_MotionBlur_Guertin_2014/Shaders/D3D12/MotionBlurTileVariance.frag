@@ -1,3 +1,5 @@
+#define UNORM 1
+
 Texture2D<float2> TileMaxTexture : register(t11);
 
 cbuffer cbMotionBlurConsts : register(b3)
@@ -18,12 +20,18 @@ float2 main(VSOutput input) : SV_TARGET
 	float2 uv_tile_diff = mConsts.xx * mConsts.zw;
 	float tile_variance = 0.0f;
 	float2 this_tile = TileMaxTexture.Sample(pSamplerNearestEdge, uv_tile);
+#if UNORM
+	this_tile = this_tile * 2.0f - 1.0f;
+#endif
 	for (float i = -1.0f; i <= 1.0f; i += 1.0f)
 	{
 		for (float j = -1.0f; j <= 1.0f; j += 1.0f)
 		{
 			float2 uv_sample = uv_tile + float2(i, j) * uv_tile_diff;
 			float2 that_tile = TileMaxTexture.Sample(pSamplerNearestEdge, uv_sample);
+#if UNORM
+			that_tile = that_tile * 2.0f - 1.0f;
+#endif
 			tile_variance += abs(dot(that_tile, this_tile));
 		}
 	}

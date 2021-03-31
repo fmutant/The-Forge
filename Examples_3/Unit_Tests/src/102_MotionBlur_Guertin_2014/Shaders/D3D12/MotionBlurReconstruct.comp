@@ -1,8 +1,6 @@
 RWTexture2D<float4> MotionBlurTexture : register(u0);
 Texture2D<float4> SceneTexture : register(t1);
-Texture2D<float> DepthTexture : register(t9);
-Texture2D<float2> VelocityTexture : register(t10);
-//Texture2D<float2> TileMaxTexture : register(t11);
+Texture2D<float3> VelocityDepthTexture : register(t10);
 Texture2D<float2> NeighborMaxTexture : register(t12);
 Texture2D<float> VarianceTexture : register(t13);
 
@@ -14,7 +12,8 @@ static const float gfEpsilon = 1e-6f;
 cbuffer cbMotionBlurConsts : register(b3)
 {
 	int4 consts;
-	int4 sizes;
+	int4 sizesi;
+	float4 sizesf;
 	float4 params;
 }
 
@@ -71,17 +70,18 @@ void main(int3 DTid: SV_DispatchThreadId)
 	float j = random(idf);
 	
 	float4 Cx = SceneTexture.Load(int3(xy_pixel, 0));
-	float2 Vn = NeighborMaxTexture.Load(int3(xy_tile + sOffset(j), 0));
+	float2 Vn = NeighborMaxTexture.Load(int3(xy_tile + sOffset(j), 0)) * 2.0f - 1.0f;
 	float Vnlen = length(Vn);
 	[branch]
-	if (Vnlen <= 0.01f)
+	if (Vnlen <= 0.5f)
 	{
 		MotionBlurTexture[DTid.xy] = Cx;
 		return;
 	}
 	
-	float Zp = DepthTexture.Load(int3(xy_pixel, 0));
-	float2 Vc = VelocityTexture.Load(int3(xy_pixel, 0));
+	float3 VcD = VelocityDepthTexture.Load(int3(xy_pixel, 0));
+	float2 Vc = VcD.xy * 2.0f - 1.0f;
+	float Zp = VcD.z;
 	float Vclen = length(Vc) + gfEpsilon;
 	
 	float2 Wn = normalize(Vn);
@@ -126,9 +126,10 @@ void main(int3 DTid: SV_DispatchThreadId)
 		
 		float T = t * Vnlen;
 		float2 S = uv0 + t * d * params.zw;
-		float2 Vs = VelocityTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
+		float3 VsD = VelocityDepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
+		float2 Vs = VsD.xy * 2.0f - 1.0f;
+		float Zs = VsD.z;
 		float4 Cs = SceneTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
-		float Zs = DepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float f = z_compare(Zp, Zs);
 		float b = z_compare(Zs, Zp);
 		

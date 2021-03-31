@@ -1,6 +1,6 @@
 Texture2D<float4> SceneTexture : register(t1);
 Texture2D<float> DepthTexture : register(t9);
-Texture2D<float2> VelocityTexture : register(t10);
+Texture2D<float3> VelocityTexture : register(t10);
 //Texture2D<float2> TileMaxTexture : register(t11);
 Texture2D<float2> NeighborMaxTexture : register(t12);
 Texture2D<float> VarianceTexture : register(t13);
@@ -99,12 +99,12 @@ float4 main(VSOutput input) : SV_TARGET
 	
 	float2 uv0 = input.texcoord;
 	float4 Cx = SceneTexture.Sample(nearestSamplerBorderZero, uv0);
-	float2 Vn = NeighborMaxTexture.Sample(nearestSamplerBorderZero, uv0 + sOffset(sv_position, j));
+	float2 Vn = NeighborMaxTexture.Sample(nearestSamplerBorderZero, uv0 + sOffset(sv_position, j)) * 2.0f - 1.0f;
 	float Vnlen = length(Vn);
-	if (Vnlen <= 0.01f) return Cx;
+	if (Vnlen <= 0.5f) return Cx;
 	
 	float Zp = DepthTexture.Sample(nearestSamplerBorderZero, uv0);
-	float2 Vc = VelocityTexture.Sample(nearestSamplerBorderZero, uv0);
+	float2 Vc = VelocityTexture.Sample(nearestSamplerBorderZero, uv0).xy * 2.0f - 1.0f;
 	float Vclen = length(Vc) + gfEpsilon;
 	
 	float2 Wn = normalize(Vn);
@@ -149,7 +149,7 @@ float4 main(VSOutput input) : SV_TARGET
 		
 		float T = t * Vnlen;
 		float2 S = uv0 + t * d * consts.zw;
-		float2 Vs = VelocityTexture.Sample(nearestSamplerBorderZero, S);
+		float2 Vs = VelocityTexture.Sample(nearestSamplerBorderZero, S).xy * 2.0f - 1.0f;
 		float4 Cs = SceneTexture.Sample(nearestSamplerBorderZero, S);
 		float Zs = DepthTexture.Sample(nearestSamplerBorderZero, S);
 		float f = z_compare(Zp, Zs);
