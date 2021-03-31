@@ -123,6 +123,18 @@
     <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileVariance.frag">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileMaxHorz.comp">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileMaxHorz.frag">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileMaxVert.comp">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+    <None Include="..\src\102_MotionBlur_Guertin_2014\Shaders\D3D12\MotionBlurTileMaxVert.frag">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\102_MotionBlur_Guertin_2014\102_MotionBlur_Guertin_2014.cpp">
