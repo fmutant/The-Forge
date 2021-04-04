@@ -114,6 +114,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 	{
 		float t = lerp(-fr, fr, i * fNinv + j_prime);
 #if USE_TILE_VARIANCE
+		[flatten]
 		if (0u == Nsamples[iu])
 		{
 			iu = 1u - iu;
@@ -136,12 +137,11 @@ void main(int3 DTid: SV_DispatchThreadId)
 		float b = z_compare(Zs, Zp);
 		
 		float Vslen = length(Vs) + gfEpsilon;
-		float weight = 0.0f;
 		float Wa = abs(dot(Wc, d));
 		float Vslenhalf = clamp(Vslen, gfEpsilon, 0.5f);
 		float Wb = abs(dot(Vs / Vslenhalf, d));
 
-		float T = t * Vnlen;
+		float T = t * Vnlen, weight = 0.0f;
 		weight += f * cone(T, 1.0f / Vslen) * Wb;
 		weight += b * cone(T, Vcleninv) * Wa;
 		weight += 2.0f * cylinder(T, min(Vslen, Vclen)) * max(Wa, Wb);
