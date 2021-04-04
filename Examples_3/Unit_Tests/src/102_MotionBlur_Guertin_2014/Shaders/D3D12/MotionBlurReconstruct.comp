@@ -92,7 +92,8 @@ void main(int3 DTid: SV_DispatchThreadId)
 	float total_weight = fN / (fKappa * Vclen);
 	float4 result = Cx * total_weight;
 	
-	float j_prime = j * fEta * fPhi / fN;
+	const float fNinv = 1.0f / (fN + 1.0f);
+	float j_prime = (1.0f + j * fEta * fPhi / fN) * fNinv;
 	uint iu = 0u;
 
 #if USE_TILE_VARIANCE
@@ -110,7 +111,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 	[loop]
 	for (float i = 0.0f; i < fN; i += 1.0f)
 	{
-		float t = lerp(-fr, fr, (i + j_prime + 1.0f) / (fN + 1.0f));
+		float t = lerp(-fr, fr, i * fNinv + j_prime);
 #if USE_TILE_VARIANCE
 		if (0u == Nsamples[iu])
 		{
