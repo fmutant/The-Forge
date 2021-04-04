@@ -585,8 +585,8 @@ public:
 		fsSetPathForResourceDir(pSystemFileIO, RM_CONTENT, RD_SCRIPTS, "Scripts");
 
 		RendererDesc settings = { 0 };
-		settings.mShaderTarget = ShaderTarget::shader_target_5_1;
-		settings.mDxFeatureLevel = D3D_FEATURE_LEVEL::D3D_FEATURE_LEVEL_12_0;
+		settings.mShaderTarget = ShaderTarget::shader_target_6_2;
+		settings.mDxFeatureLevel = D3D_FEATURE_LEVEL::D3D_FEATURE_LEVEL_12_1;
 		settings.mGpuMode = GpuMode::GPU_MODE_SINGLE;
 		settings.mApi = RendererApi::RENDERER_API_D3D12;
 		settings.mEnableGPUBasedValidation = false;
@@ -3188,20 +3188,20 @@ public:
 			if (i == 1 || i == 2)
 				deferredRTDesc.mFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
 			else if (i == 3)
-			{
 				deferredRTDesc.mFormat = cMotionBufferFormat;
-				deferredRTDesc.mClearValue = { { 0.5f, 0.5f, 1.0f, 0.0f } };
-			}
 			else
 				deferredRTDesc.mFormat = TinyImageFormat_R8G8B8A8_UNORM;
 
 			if (i == 2)
 				deferredRTDesc.mClearValue = { { 1.0f, 0.0f, 0.0f, 0.0f } };
+			else if (i == 3)
+				deferredRTDesc.mClearValue = { { 0.5f, 0.5f, 1.0f, 0.0f } };
 
 			addRenderTarget(pRenderer, &deferredRTDesc, &pRenderTargetDeferredPass[0][i]);
 			pRenderTargetDeferredPass[1][i] = pRenderTargetDeferredPass[0][i];
 		}
 
+		deferredRTDesc.mClearValue = optimizedColorClearBlack;
 		deferredRTDesc.mFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
 		addRenderTarget(pRenderer, &deferredRTDesc, &pRenderTargetDeferredPass[1][1]);
 
