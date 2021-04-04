@@ -1,3 +1,6 @@
+#define USE_TILE_VARIANCE 1
+#define UNORM 1
+
 RWTexture2D<float4> MotionBlurTexture : register(u0);
 Texture2D<float4> SceneTexture : register(t1);
 Texture2D<float3> VelocityDepthTexture : register(t10);
@@ -7,12 +10,10 @@ Texture2D<float> VarianceTexture : register(t13);
 static const float gfPI = 3.14159265359f;
 static const float gfEpsilon = 1e-6f;
 
-#define USE_TILE_VARIANCE 1
-
 cbuffer cbMotionBlurConsts : register(b3)
 {
-	int4 consts;
-	int4 sizesi;
+	uint4 consts;
+	uint4 sizesi;
 	float4 sizesf;
 	float4 params;
 }
@@ -34,7 +35,7 @@ float random(float2 sv_position)
 {
 	//interleaved gradient noise
 	float noise_0to1 = frac(52.9829189f * frac(0.06711056f * sv_position.x + 0.00583715f * sv_position.y));
-	return noise_0to1 * 2.0f - 1.0f;
+	return noise_0to1;
 }
 
 int2 sOffset(float j)
@@ -49,25 +50,28 @@ int2 sOffset(float j)
 }
 
 [numthreads(32, 1, 1)]
-void main(int3 DTid: SV_DispatchThreadId)
+void main(uint3 DTid: SV_DispatchThreadId)
 {
 	float2 idf = float2(DTid.xy);
 	float2 idfplushalf = idf + float2(0.5f, 0.5f);
-	int2 xy_pixel = DTid.xy;
-	int2 xy_tile = xy_pixel / consts.xx;
+	uint2 xy_pixel = DTid.xy;
+	uint2 xy_tile = xy_pixel / consts.xx;
 	
 	const float fN = params.x;
 	const float fr = consts.x;
 	const float fTau = 1.0f;
 	const float fKappaInv = 1.0f / 40.0f;
 	const float fEta = 0.95f;
-	const float fGamma = 1.5f;
+	const float fGammaInv = (1.0f / 1.5f);
 	const float fPhi = 27.0f;
 	
 	float j = random(idf);
 	
-	float4 Cx = SceneTexture.Load(int3(xy_pixel, 0));
-	float2 Vn = NeighborMaxTexture.Load(int3(xy_tile + sOffset(j), 0)) * 2.0f - 1.0f;
+	float4 Cx = SceneTexture.Load(uint3(xy_pixel, 0));
+	float2 Vn = NeighborMaxTexture.Load(uint3(xy_tile + sOffset(j), 0));
+#if UNORM
+	Vn = Vn * 2.0f - 1.0f;
+#endif
 	float Vnlen = length(Vn);
 	[branch]
 	if (Vnlen <= 0.5f)
@@ -76,29 +80,34 @@ void main(int3 DTid: SV_DispatchThreadId)
 		return;
 	}
 	
-	float3 VcD = VelocityDepthTexture.Load(int3(xy_pixel, 0));
-	float2 Vc = VcD.xy * 2.0f - 1.0f;
+	float3 VcD = VelocityDepthTexture.Load(uint3(xy_pixel, 0));
+	float2 Vc = VcD.xy;
+#if UNORM
+	Vc = Vc * 2.0f - 1.0f;
+#endif
 	float Zp = VcD.z;
 	float Vclen = length(Vc) + gfEpsilon;
 	float Vcleninv = 1.0f / Vclen;
 	
 	float2 Wn = normalize(Vn);
 	float2 Wp = float2(-Wn.y, Wn.x);
+	[flatten]
 	if (dot(Wp, Vc) < 0.0f) Wp = -Wp;
-	float2 Wc = (lerp(Wp, Vc * Vcleninv, min(Vclen - 0.5f, 0.0f) / fGamma));
+	float2 Wc = (lerp(Wp, Vc * Vcleninv, min(Vclen - 0.5f, 0.0f) * fGammaInv));
 	
 	float total_weight = fN * Vcleninv * fKappaInv;
 	float4 result = Cx * total_weight;
 	
 	const float fNinv = 1.0f / (fN + 1.0f);
+	j = j * 2.0f - 1.0f;
 	float j_prime = (1.0f + j * fEta * fPhi / fN) * fNinv;
 	uint iu = 0u;
 
 #if USE_TILE_VARIANCE
-	float variance = VarianceTexture.Load(int3(xy_tile, 0));
+	float variance = VarianceTexture.Load(uint3(xy_tile, 0));
 	uint Nsamples[2] = {
 		variance * fN,
-		(1.0f - variance) * fN
+		-variance * fN + fN
 	};
 	float2 Nvectors[2] = {
 		Vc,
@@ -125,9 +134,12 @@ void main(int3 DTid: SV_DispatchThreadId)
 #endif
 
 		float2 S = idfplushalf + t * d;
-		float3 VsD = VelocityDepthTexture.Load(int3(S, 0));
-		float4 Cs = SceneTexture.Load(int3(S, 0));
-		float2 Vs = VsD.xy * 2.0f - 1.0f;
+		float3 VsD = VelocityDepthTexture.Load(uint3(S, 0));
+		float4 Cs = SceneTexture.Load(uint3(S, 0));
+		float2 Vs = VsD.xy;
+#if UNORM
+		Vs = Vs * 2.0f - 1.0f;
+#endif
 		float Zs = VsD.z;
 		float f = z_compare(Zp, Zs);
 		float b = z_compare(Zs, Zp);
