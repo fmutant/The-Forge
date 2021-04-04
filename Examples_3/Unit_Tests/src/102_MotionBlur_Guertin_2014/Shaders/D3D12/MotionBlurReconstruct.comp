@@ -125,7 +125,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 		++iu;
 #endif
 		
-		float T = t * Vnlen;
+		
 		float2 S = uv0 + t * d * params.zw;
 		float3 VsD = VelocityDepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float2 Vs = VsD.xy * 2.0f - 1.0f;
@@ -140,6 +140,7 @@ void main(int3 DTid: SV_DispatchThreadId)
 		float Vslenhalf = clamp(Vslen, gfEpsilon, 0.5f);
 		float Wb = abs(dot(Vs / Vslenhalf, d));
 
+		float T = t * Vnlen;
 		weight += f * cone(T, 1.0f / Vslen) * Wb;
 		weight += b * cone(T, 1.0f / Vclen) * Wa;
 		weight += 2.0f * cylinder(T, min(Vslen, Vclen)) * max(Wa, Wb);
