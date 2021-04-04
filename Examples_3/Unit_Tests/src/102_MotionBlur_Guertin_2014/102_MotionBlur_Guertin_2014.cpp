@@ -907,13 +907,8 @@ public:
 				ShaderLoadDesc MotionBlurReconstructShaderDesc = {};
 				MotionBlurReconstructShaderDesc.mStages[1] = { "MotionBlurReconstruct.comp", nullptr, 0 };
 				addShader(pRenderer, &MotionBlurReconstructShaderDesc, &pMotionBlurReconstructShaderCompute);
-				const char* pStaticSamplerforReconstructNames[] = { "nearestSamplerBorderZero" };
-				Sampler*    pStaticSamplersforReconstruct[] = { pSamplerNearestBorderZero };
 
 				RootSignatureDesc MotionBlurReconstructRootDesc = { &pMotionBlurReconstructShaderCompute, 1 };
-				MotionBlurReconstructRootDesc.mStaticSamplerCount = 1;
-				MotionBlurReconstructRootDesc.ppStaticSamplerNames = pStaticSamplerforReconstructNames;
-				MotionBlurReconstructRootDesc.ppStaticSamplers = pStaticSamplersforReconstruct;
 				addRootSignature(pRenderer, &MotionBlurReconstructRootDesc, &pMotionBlurReconstructRootSignatureCompute);
 			}
 		}

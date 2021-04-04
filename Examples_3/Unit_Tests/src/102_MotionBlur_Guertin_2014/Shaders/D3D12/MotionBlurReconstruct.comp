@@ -17,8 +17,6 @@ cbuffer cbMotionBlurConsts : register(b3)
 	float4 params;
 }
 
-SamplerState nearestSamplerBorderZero : register(s6);
-
 float cone(float uvdiff, float vlen)
 {
 	return saturate(1.0f - uvdiff * vlen);
@@ -54,8 +52,7 @@ int2 sOffset(float j)
 void main(int3 DTid: SV_DispatchThreadId)
 {
 	float2 idf = float2(DTid.xy);
-	float2 uv0 = idf * params.zw;
-	
+	float2 idfplushalf = idf + float2(0.5f, 0.5f);
 	int2 xy_pixel = DTid.xy;
 	int2 xy_tile = xy_pixel / consts.xx;
 	
@@ -126,13 +123,12 @@ void main(int3 DTid: SV_DispatchThreadId)
 		float2 d = (iu & 0x1u) ? Vc : Vn;
 		++iu;
 #endif
-		
-		
-		float2 S = uv0 + t * d * params.zw;
-		float3 VsD = VelocityDepthTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
+
+		float2 S = idfplushalf + t * d;
+		float3 VsD = VelocityDepthTexture.Load(int3(S, 0));
+		float4 Cs = SceneTexture.Load(int3(S, 0));
 		float2 Vs = VsD.xy * 2.0f - 1.0f;
 		float Zs = VsD.z;
-		float4 Cs = SceneTexture.SampleLevel(nearestSamplerBorderZero, S, 0);
 		float f = z_compare(Zp, Zs);
 		float b = z_compare(Zs, Zp);
 		
