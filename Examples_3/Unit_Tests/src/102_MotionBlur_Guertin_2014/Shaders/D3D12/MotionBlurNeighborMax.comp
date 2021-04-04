@@ -1,7 +1,7 @@
 #define UNORM 1
 
 RWTexture2D<min16float2> NeighborMax: register(u0);
-Texture2D<min16float2> TileMaxTexture : register(t11);
+Texture2D<min16float2> TileMaxTexture : register(t0);
 
 SamplerState nearestSamplerClamp : register(s0);
 

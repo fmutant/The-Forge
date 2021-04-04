@@ -1,7 +1,7 @@
 #define UNORM 1
 
 RWTexture2D<float2> TileMax: register(u0);
-Texture2D<float3> VelocityTexture : register(t10);
+Texture2D<float3> VelocityTexture : register(t0);
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
