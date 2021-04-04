@@ -3118,10 +3118,10 @@ public:
 			MotionBlurReconstructParams[2].ppTextures = &pVelocityBuffer->pTexture;
 			MotionBlurReconstructParams[3].pName = "NeighborMaxTexture";
 			MotionBlurReconstructParams[3].ppTextures = &pNeighborMaxBuffer->pTexture;
-			MotionBlurReconstructParams[4].pName = "VarianceTexture";
-			MotionBlurReconstructParams[4].ppTextures = &pTileVarianceBuffer->pTexture;
-			MotionBlurReconstructParams[5].pName = "MotionBlurTexture";
-			MotionBlurReconstructParams[5].ppTextures = &pMotionBlurredBuffer->pTexture;
+			MotionBlurReconstructParams[4].pName = "MotionBlurTexture";
+			MotionBlurReconstructParams[4].ppTextures = &pMotionBlurredBuffer->pTexture;
+			MotionBlurReconstructParams[5].pName = "VarianceTexture";
+			MotionBlurReconstructParams[5].ppTextures = &pTileVarianceBuffer->pTexture;
 			updateDescriptorSet(pRenderer, 0, pMotionBlurReconstructDescriptorSetCompute[0], 6, MotionBlurReconstructParams);
 		}
 	}
