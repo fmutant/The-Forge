@@ -1,18 +1,18 @@
 #define UNORM 1
 
-RWTexture2D<float2> TileMaxVert: register(u0);
-Texture2D<float2> TileMaxHorzTexture : register(t0);
+RWTexture2D<min16float2> TileMaxVert: register(u0);
+Texture2D<min16float2> TileMaxHorzTexture : register(t0);
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
-	int4 consts;
-	int4 sizes;
+	uint4 consts;
+	uint4 sizes;
 }
 
-float2 vmax(float2 s, float2 v)
+min16float2 vmax(min16float2 s, min16float2 v)
 {
 #if UNORM
-	s = s * 2.0f - 1.0f;
+	s = s * min16float2(2.0h, 2.0h) - min16float2(1.0h, 1.0h);
 #endif
 	return dot(s, s) < dot(v, v) ? v : s;
 }
@@ -22,15 +22,14 @@ void main(uint3 DTid : SV_DispatchThreadID)
 {
 	if (any(sizes.zw < DTid.xy)) return;
 
-	int3 xyl = int3(DTid.x, DTid.y * consts.x, 0);
-	float2 tile_max = float2(0.0f, 0.0f);
-	float2 velocity = float2(0.0f, 0.0f);
-	for (int j = 0; j < consts.x && xyl.y < sizes.y; ++j, ++xyl.y)
+	uint3 xyl = uint3(DTid.x, DTid.y * consts.x, 0u);
+	min16float2 tile_max = float2(0.0h, 0.0h);
+	for (uint j = 0u; j < consts.x && xyl.y < sizes.y; ++j, ++xyl.y)
 	{
 		tile_max = vmax(TileMaxHorzTexture.Load(xyl), tile_max);
 	}
 #if UNORM
-	tile_max = tile_max * 0.5f + 0.5f;
+	tile_max = tile_max * min16float2(0.5h, 0.5h) + min16float2(0.5h, 0.5h);
 #endif
 	TileMaxVert[DTid.xy] = tile_max;
 }

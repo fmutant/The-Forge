@@ -1,48 +1,48 @@
 #define UNORM 1
 
-RWTexture2D<float2> NeighborMax: register(u0);
-Texture2D<float2> TileMaxTexture : register(t11);
+RWTexture2D<min16float2> NeighborMax: register(u0);
+Texture2D<min16float2> TileMaxTexture : register(t11);
 
 SamplerState nearestSamplerClamp : register(s0);
 
 cbuffer cbMotionBlurConsts : register(b3)
 {
-	int4 consts;
-	int4 sizesi;
+	uint4 consts;
+	uint4 sizesi;
 	float4 sizesf;
 }
 
-float2 vmax_axis(float2 v, float2 s)
+min16float2 vmax_axis(min16float2 v, min16float2 s)
 {
 #if UNORM
-	s = s * 2.0f - 1.0f;
+	s = s * min16float2(2.0h, 2.0h) - min16float2(1.0h, 1.0h);
 #endif
 	bool is_greater = dot(v, v) < dot(s, s);
 	return is_greater ? s : v;
 }
 
-float2 vmax_diag(float2 v, float2 s, float2 to_center_norm)
+min16float2 vmax_diag(min16float2 v, min16float2 s, min16float2 to_center_norm)
 {
 	// to calc cos of angle between diag and center tile we would need euclidean distance from
 	// center of this tile to center of center tile + half-tile offset in perpendicular direction
 	// so, if center tile is (1.5, 1.5) and this tile is (0.5, 0.5) then the third point would be (2.0, 1.0) or (1.0, 2.0)
 	// and the cos equals to 2 * sqrt(0.2) ~ 0.894427191f
 	
-	static const float min_cos = 0.894427191f;
+	static const min16float min_cos = 0.894427191h;
 #if UNORM
-	s = s * 2.0f - 1.0f;
+	s = s * min16float2(2.0h, 2.0h) - min16float2(1.0h, 1.0h);
 #endif
-	bool is_affecting_center = min_cos < dot(s / (length(s) + 1e-06f), to_center_norm);
+	bool is_affecting_center = min_cos < dot(s / (length(s) + min16float(1e-06h)), to_center_norm);
 	bool is_greater = dot(v, v) < dot(s, s);
 	return is_greater && is_affecting_center ? s : v;
 }
 
 [numthreads(8, 2, 1)]
-void main(int3 DTid: SV_DispatchThreadID)
+void main(uint3 DTid: SV_DispatchThreadID)
 {
-	float2 neighbor_max = TileMaxTexture.Load(int3(DTid.xy, 0));
+	min16float2 neighbor_max = TileMaxTexture.Load(uint3(DTid.xy, 0));
 #if UNORM
-	neighbor_max = neighbor_max * 2.0f - 1.0f;
+	neighbor_max = neighbor_max * min16float2(2.0h, 2.0h) - min16float2(1.0h, 1.0h);
 #endif
 	float2 coords = DTid.xy * sizesf.zw;
 	neighbor_max = vmax_axis(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  0)));
@@ -50,13 +50,13 @@ void main(int3 DTid: SV_DispatchThreadID)
 	neighbor_max = vmax_axis(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0, -1)));
 	neighbor_max = vmax_axis(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0,  1)));
 //	neighbor_max = vmax_axis(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 0,  0)));
-	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1, -1)), float2( 0.70710678118f,  0.70710678118f));
-	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1, -1)), float2(-0.70710678118f,  0.70710678118f));
-	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  1)), float2( 0.70710678118f, -0.70710678118f));
-	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1,  1)), float2(-0.70710678118f, -0.70710678118f));
+	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1, -1)), min16float2( 0.70710678118h,  0.70710678118h));
+	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1, -1)), min16float2(-0.70710678118h,  0.70710678118h));
+	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2(-1,  1)), min16float2( 0.70710678118h, -0.70710678118h));
+	neighbor_max = vmax_diag(neighbor_max, TileMaxTexture.SampleLevel(nearestSamplerClamp, coords, 0, int2( 1,  1)), min16float2(-0.70710678118h, -0.70710678118h));
 
 #if UNORM
-	neighbor_max = neighbor_max * 0.5f + 0.5f;
+	neighbor_max = neighbor_max * min16float2(0.5h, 0.5h) + min16float2(0.5h, 0.5h);
 #endif
 	
 	NeighborMax[DTid.xy] = neighbor_max;

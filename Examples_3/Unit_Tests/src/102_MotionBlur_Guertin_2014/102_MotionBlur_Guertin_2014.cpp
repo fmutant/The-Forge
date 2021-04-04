@@ -95,8 +95,8 @@ struct UniformMotionBlurData
 
 struct UniformMotionBlurDataCompute
 {
-	int4 mConstsInt; //x -> k, y -> 0, z -> width, w -> height
-	int4 mSizesInt;
+	uint4 mConstsInt; //x -> k, y -> 0, z -> width, w -> height
+	uint4 mSizesInt;
 	vec4 mSizesInv;
 	vec4 mReconstructParams; // x -> Za, y -> Zb, z -> Z_SOFT_EXTENT, w -> Samples count
 };
@@ -2244,18 +2244,18 @@ public:
 			);
 		}
 		{
-			gUniformDataMotionBlurCompute.mConstsInt = int4(
-				int32_t(cMotionBlurK),
-				0,
+			gUniformDataMotionBlurCompute.mConstsInt = uint4(
+				uint32_t(cMotionBlurK),
+				0u,
 				mSettings.mWidth,
 				mSettings.mHeight
 			);
 
-			gUniformDataMotionBlurCompute.mSizesInt = int4(
+			gUniformDataMotionBlurCompute.mSizesInt = uint4(
 				mSettings.mWidth,
 				mSettings.mHeight,
-				int32_t(ceilf(mSettings.mWidth / cMotionBlurK)),
-				int32_t(ceilf(mSettings.mHeight / cMotionBlurK))
+				uint32_t(ceilf(mSettings.mWidth / cMotionBlurK)),
+				uint32_t(ceilf(mSettings.mHeight / cMotionBlurK))
 			);
 
 			gUniformDataMotionBlurCompute.mSizesInv = vec4(
