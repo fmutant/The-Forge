@@ -64,7 +64,7 @@
     <None Include="..\src\103_PBRCamera\Shaders\Vulkan\skybox.vert" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{B5DFF479-3768-4AC2-9743-EE2D7CDB33A6}</ProjectGuid>
+    <ProjectGuid>{8F064C6B-66CB-4AB1-933E-76468C86EA6D}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>Samples_GLFW</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>

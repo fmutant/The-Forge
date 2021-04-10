@@ -147,10 +147,14 @@ struct VSOutput {
 	float4 Position : SV_POSITION;	
 	float2 uv:    TEXCOORD0;
 };
+struct PSOutput {
+	float4 Color : SV_Target0;
+	float Luminance : SV_Target1;
+};
 
-float4 main(VSOutput input) : SV_TARGET
+PSOutput main(VSOutput input) : SV_TARGET
 {
-
+	PSOutput Out;
 	// default albedo 
 	float3 albedo = AlbedoTexture.Sample(defaultSampler, input.uv).rgb;
 
@@ -166,7 +170,9 @@ float4 main(VSOutput input) : SV_TARGET
 	if(depth >= 1.0)
 	{
 		//Skybox
-		return float4(albedo, 1.0);
+		Out.Color = float4(albedo, 1.0);
+		Out.Luminance = 1000.0f;
+		return Out;
 	}
 
 	float3 N = normalize(normalColor.rgb);
@@ -183,7 +189,7 @@ float4 main(VSOutput input) : SV_TARGET
 	F0 = lerp(F0, albedo, _metalness);
 
 	float3 Lo = float3(0.0, 0.0, 0.0);
-
+	float3 luminance = float3(0.0f, 0.0f, 0.0f);
 	//Directional Lights
 	for(int i = 0; i < currAmountOfDLights; ++i)
 	{
@@ -213,10 +219,14 @@ float4 main(VSOutput input) : SV_TARGET
 
 		if(NdotL>0.0f)
 		{
-			Lo +=  (kD * albedo / PI + specular) * radiance * NdotL;
+			float3 diffuse_term = (kD * radiance) * (NdotL / PI);
+			float3 specular_term = specular * radiance * NdotL;
+			luminance += diffuse_term + specular_term;
+			Lo += diffuse_term * albedo + specular_term;
 		}
 		else
 		{
+			luminance += float3(0.0f, 0.0f, 0.0f);
 			Lo += float3(0.0f, 0.0f, 0.0f);
 		}		
 	}
@@ -259,13 +269,17 @@ float4 main(VSOutput input) : SV_TARGET
 
 		float NdotL = max(dot(N, L), 0.0);
 
-		if(NdotL>0.0f) {
-
-		Lo += (kD * albedo / PI + specular) * radiance * NdotL;
-		}else {
-
-
-			Lo+= float3(0.0f, 0.0f, 0.0f);
+		if (NdotL>0.0f)
+		{
+			float3 diffuse_term = (kD * radiance) * (NdotL / PI);
+			float3 specular_term = specular * radiance * NdotL;
+			luminance += diffuse_term + specular_term;
+			Lo += diffuse_term * albedo + specular_term;;
+		}
+		else
+		{
+			luminance += float3(0.0f, 0.0f, 0.0f);
+			Lo += float3(0.0f, 0.0f, 0.0f);
 		}		
 	}
 
@@ -276,7 +290,8 @@ float4 main(VSOutput input) : SV_TARGET
 	kD *= 1.0 - _metalness;
 
 	float3 irradiance = irradianceMap.Sample(envSampler, N).rgb;
-	float3 diffuse = kD * irradiance * albedo;
+
+	float3 diffuse = kD * irradiance;
 
 	float3 specularColor = specularMap.SampleLevel(envSampler, R, _roughness * 4).rgb;
 		
@@ -284,10 +299,14 @@ float4 main(VSOutput input) : SV_TARGET
 	float2 brdf = brdfIntegrationMap.Sample(defaultSampler, maxNVRough).rg;
 	
 	float3 specular = specularColor * (F * brdf.x + brdf.y);
-
-	float3 ambient = float3(diffuse + specular)*float3(ao,ao,ao);
+	
+	luminance += diffuse + specular;
+	
+	float3 ambient = float3(diffuse * albedo + specular)*float3(ao,ao,ao);
 	
 	float3 color = Lo + ambient * 0.2;
 
-    return float4(color.r, color.g, color.b, 1.0f);
+    Out.Color = float4(color.r, color.g, color.b, 1.0f);
+	Out.Luminance = dot(luminance, float3(0.2125f, 0.7154f, 0.0721f));
+	return Out;
 }

@@ -458,12 +458,12 @@ void RunScript()
 	gAppUI.RunTestScript(gTestScripts[gCurrentScriptIndex]);
 }
 
-class CleanSponza : public IApp
+class PBRCamera : public IApp
 {
 	size_t mProgressBarValue = 0, mProgressBarValueMax = 1024;
 
 	public:
-	CleanSponza()
+	PBRCamera()
 	{
 #ifdef TARGET_IOS
 		mSettings.mContentScaleFactor = 1.f;
@@ -534,7 +534,7 @@ class CleanSponza : public IApp
 
 		GuiDesc guiDesc = {};
 		guiDesc.mStartPosition = vec2(mSettings.mWidth * 0.01f, mSettings.mHeight * 0.25f);
-		pGui = gAppUI.AddGuiComponent("Clean Sponza", &guiDesc);
+		pGui = gAppUI.AddGuiComponent("PBR Camera", &guiDesc);
 
 		initProfiler();
 		initProfilerUI(&gAppUI, mSettings.mWidth, mSettings.mHeight);
@@ -1437,6 +1437,9 @@ class CleanSponza : public IApp
 
 		if (!addDepthBuffer())
 			return false;
+			
+		if (!addLuminanceBuffer())
+			return false;
 
 		if (!gAppUI.Load(pSwapChain->ppRenderTargets))
 			return false;
@@ -1526,12 +1529,15 @@ class CleanSponza : public IApp
 		vertexLayoutScreenQuad.mAttribs[1].mOffset = 3 * sizeof(float);    // first attribute contains 3 floats
 
 		desc.mGraphicsDesc = {};
+		TinyImageFormat sceneBrdfFormats[2] = {
+			pSceneBuffer->mFormat,
+			pLuminanceBuffer->mFormat,
+		};
 		GraphicsPipelineDesc& pipelineSettings = desc.mGraphicsDesc;
 		pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
-		pipelineSettings.mRenderTargetCount = 1;
+		pipelineSettings.mRenderTargetCount = 2;
 		pipelineSettings.pDepthState = NULL;
-
-		pipelineSettings.pColorFormats = &pSceneBuffer->mFormat;
+		pipelineSettings.pColorFormats = sceneBrdfFormats;
 		pipelineSettings.mSampleCount = pSceneBuffer->mSampleCount;
 		pipelineSettings.mSampleQuality = pSceneBuffer->mSampleQuality;
 
@@ -1714,7 +1720,7 @@ class CleanSponza : public IApp
 		loadActions.mClearDepth = { { 1.0f, 0.0f } };    // Clear depth to the far plane and stencil to 0
 
 		// Transfer G-buffers to render target state for each buffer
-		RenderTargetBarrier rtBarriers[DEFERRED_RT_COUNT + 2] = {};
+		RenderTargetBarrier rtBarriers[DEFERRED_RT_COUNT + 3] = {};
 		rtBarriers[0] = { pDepthBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_DEPTH_WRITE };
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 		{
@@ -1884,21 +1890,27 @@ class CleanSponza : public IApp
 		rtBarriers[0] = { pDepthBuffer, RESOURCE_STATE_DEPTH_WRITE, RESOURCE_STATE_SHADER_RESOURCE };
 		// Transfer current render target to a render target state
 		rtBarriers[1] = { pSceneBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+		rtBarriers[2] = { pLuminanceBuffer, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
 		// Transfer G-buffers to a Shader resource state
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 		{
-			rtBarriers[2 + i] = { pRenderTargetDeferredPass[gFrameFlipFlop][i], RESOURCE_STATE_RENDER_TARGET,
+			rtBarriers[3 + i] = { pRenderTargetDeferredPass[gFrameFlipFlop][i], RESOURCE_STATE_RENDER_TARGET,
 								  RESOURCE_STATE_SHADER_RESOURCE };
 		}
 
-		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, DEFERRED_RT_COUNT + 2, rtBarriers);
+		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, DEFERRED_RT_COUNT + 3, rtBarriers);
 
 		loadActions = {};
 
 		loadActions.mLoadActionsColor[0] = LOAD_ACTION_CLEAR;
 		loadActions.mClearColorValues[0] = pSceneBuffer->mClearValue;
-
-		cmdBindRenderTargets(cmd, 1, &pSceneBuffer, NULL, &loadActions, NULL, NULL, -1, -1);
+		loadActions.mLoadActionsColor[1] = LOAD_ACTION_CLEAR;
+		loadActions.mClearColorValues[1] = pLuminanceBuffer->mClearValue;
+		RenderTarget* pBrdfRTs[] = {
+			pSceneBuffer,
+			pLuminanceBuffer,
+		};
+		cmdBindRenderTargets(cmd, 2, pBrdfRTs, NULL, &loadActions, NULL, NULL, -1, -1);
 		cmdSetViewport(cmd, 0.0f, 0.0f, (float)pSceneBuffer->mWidth, (float)pSceneBuffer->mHeight, 0.0f, 1.0f);
 		cmdSetScissor(cmd, 0, 0, pSceneBuffer->mWidth, pSceneBuffer->mHeight);
 
@@ -1920,8 +1932,9 @@ class CleanSponza : public IApp
 		RenderTarget* pRenderTarget = pSwapChain->ppRenderTargets[swapchainImageIndex];
 
 		rtBarriers[0] = { pSceneBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-		rtBarriers[1] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
-		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+		rtBarriers[1] = { pLuminanceBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+		rtBarriers[2] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
+		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 3, rtBarriers);
 
 		loadActions = {};
 
@@ -2192,7 +2205,7 @@ class CleanSponza : public IApp
 	bool addLuminanceBuffer()
 	{
 		RenderTargetDesc lumRT = {};
-		lumRT.mFormat = TinyImageFormat_R16_UNORM;
+		lumRT.mFormat = TinyImageFormat_R16_SFLOAT;
 		lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
 		lumRT.mWidth = mSettings.mWidth;
 		lumRT.mHeight = mSettings.mHeight;
