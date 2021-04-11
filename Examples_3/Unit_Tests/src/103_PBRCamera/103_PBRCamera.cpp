@@ -60,53 +60,53 @@ typedef float f32;
 
 namespace Exposure
 {
-//ExposureValue100
-f32 EV100(f32 N, f32 t)
-{
-	return log2f(N * N / t);
-}
-//ExposureValue100 at sensitivity
-f32 EV100(f32 aperture, f32 shutter_time, f32 iso)
-{
-	return log2f(aperture * aperture * 100.0f / (iso * shutter_time));
-}
-//ExposureValue at sensitivity
-f32 EV(f32 aperture, f32 shutter_time, f32 iso)
-{
-	return log2f(aperture * aperture * 0.01f * iso / shutter_time);
-}
-f32 EV100Luminance(f32 luminance)
-{
-	constexpr f32 K = 12.5f; // reflected-light meter constant
-	return log2f(luminance * 100.0f / K);
-}
-//ExposureValue100 compensated
-f32 EV100Comp(f32 ev100, f32 ec)
-{
-	return ev100 - ec;
-}
-//ExposurePhotometric
-f32 EP(f32 aperture, f32 shutter_time, f32 luminance)
-{
-	constexpr f32 pi = 0.25 * 3.14159265359f; // PI / 4
-	constexpr f32 T = 0.9f; // lens transmission
-	constexpr f32 v_theta = 0.98f; //vignetting factor
-	constexpr f32 cos_4_theta = 0.94060186578f;
-	constexpr f32 q = pi * T * v_theta * cos_4_theta; // lens properties ~0.65f
-	float NsqrInv = 1.0f / (aperture * aperture);
-	return q * shutter_time * luminance * NsqrInv;
-}
-//ExposurePhotometric from saturation-based speed relation (sat)
-f32 ExposureSAT(f32 aperture, f32 shutter_time, f32 sensitivity)
-{
-	// Lmax is (aperture^2 * 10) / (q * shutter_time * sensitivity)
-	// after a few simplifications the final expressions is (2^(EV100()) * 1.2f)
-	return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 1.2f);
-}
-f32 ExposureSOS(f32 aperture, f32 shutter_time, f32 sensitivity)
-{
-	return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 0.153846f);
-}
+	//ExposureValue100
+	f32 EV100(f32 N, f32 t)
+	{
+		return log2f(N * N / t);
+	}
+	//ExposureValue100 at sensitivity
+	f32 EV100(f32 aperture, f32 shutter_time, f32 iso)
+	{
+		return log2f(aperture * aperture * 100.0f / (iso * shutter_time));
+	}
+	//ExposureValue at sensitivity
+	f32 EV(f32 aperture, f32 shutter_time, f32 iso)
+	{
+		return log2f(aperture * aperture * 0.01f * iso / shutter_time);
+	}
+	f32 EV100Luminance(f32 luminance)
+	{
+		constexpr f32 K = 12.5f; // reflected-light meter constant
+		return log2f(luminance * 100.0f / K);
+	}
+	//ExposureValue100 compensated
+	f32 EV100Comp(f32 ev100, f32 ec)
+	{
+		return ev100 - ec;
+	}
+	//ExposurePhotometric
+	f32 EP(f32 aperture, f32 shutter_time, f32 luminance)
+	{
+		constexpr f32 pi = 0.25 * 3.14159265359f; // PI / 4
+		constexpr f32 T = 0.9f; // lens transmission
+		constexpr f32 v_theta = 0.98f; //vignetting factor
+		constexpr f32 cos_4_theta = 0.94060186578f;
+		constexpr f32 q = pi * T * v_theta * cos_4_theta; // lens properties ~0.65f
+		float NsqrInv = 1.0f / (aperture * aperture);
+		return q * shutter_time * luminance * NsqrInv;
+	}
+	//ExposurePhotometric from saturation-based speed relation (sat)
+	f32 ExposureSAT(f32 aperture, f32 shutter_time, f32 sensitivity)
+	{
+		// Lmax is (aperture^2 * 10) / (q * shutter_time * sensitivity)
+		// after a few simplifications the final expressions is (2^(EV100()) * 1.2f)
+		return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 1.2f);
+	}
+	f32 ExposureSOS(f32 aperture, f32 shutter_time, f32 sensitivity)
+	{
+		return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 0.153846f);
+	}
 
 }
 
@@ -338,6 +338,9 @@ RenderTarget* pSceneBuffer = NULL;
 
 RenderTarget* pDepthBuffer = NULL;
 RenderTarget* pLuminanceBuffer = nullptr;
+RenderTarget* pLuminanceBufferMips[16] = {};
+uint32_t pLuminanceBufferMipsCount = 0;
+
 
 Fence*        pRenderCompleteFences[gImageCount] = { NULL };
 Semaphore*    pImageAcquiredSemaphore = NULL;
@@ -365,6 +368,11 @@ Shader*        pShaderGbuffers = NULL;
 Pipeline*      pPipelineGbuffers = NULL;
 RootSignature* pRootSigGbuffers = NULL;
 DescriptorSet* pDescriptorSetGbuffers[3] = { NULL };
+
+Shader* pLuminanceShader = nullptr;
+Pipeline* pLuminancePipeline = nullptr;
+RootSignature* pLuminanceRootSig = nullptr;
+DescriptorSet* pLuminanceDescriptor[1] = { nullptr };
 
 Texture* pSkybox = NULL;
 Texture* pBRDFIntegrationMap = NULL;
@@ -417,6 +425,7 @@ Shader*   pShaderPostProc = NULL;
 Pipeline* pPipelinePostProc = NULL;
 
 Sampler* pSamplerBilinear = NULL;
+Sampler* pSamplerBilinearClamp = nullptr;
 Sampler* pSamplerLinear = NULL;
 
 Sampler* pSamplerNearest = NULL;
@@ -441,9 +450,9 @@ const char* pTextureName[] = { "albedoMap", "normalMap", "metallicMap", "roughne
 const char* gModelNames[2] = { "Sponza.gltf", "lion.gltf" };
 Geometry*   gModels[2];
 uint32_t    gMaterialIds[] = {
-    0,  3,  1,  4,  5,  6,  7,  8,  6,  9,  7,  6, 10, 5, 7,  5, 6, 7,  6, 7,  6,  7,  6,  7,  6,  7,  6,  7,  6,  7,  6,  7,  6,  7,  6,
-    5,  6,  5,  11, 5,  11, 5,  11, 5,  10, 5,  9, 8,  6, 12, 2, 5, 13, 0, 14, 15, 16, 14, 15, 14, 16, 15, 13, 17, 18, 19, 18, 19, 18, 17,
-    19, 18, 17, 20, 21, 20, 21, 20, 21, 20, 21, 3, 1,  3, 1,  3, 1, 3,  1, 3,  1,  3,  1,  3,  1,  22, 23, 4,  23, 4,  5,  24, 5,
+	0,  3,  1,  4,  5,  6,  7,  8,  6,  9,  7,  6, 10, 5, 7,  5, 6, 7,  6, 7,  6,  7,  6,  7,  6,  7,  6,  7,  6,  7,  6,  7,  6,  7,  6,
+	5,  6,  5,  11, 5,  11, 5,  11, 5,  10, 5,  9, 8,  6, 12, 2, 5, 13, 0, 14, 15, 16, 14, 15, 14, 16, 15, 13, 17, 18, 19, 18, 19, 18, 17,
+	19, 18, 17, 20, 21, 20, 21, 20, 21, 20, 21, 3, 1,  3, 1,  3, 1, 3,  1, 3,  1,  3,  1,  3,  1,  22, 23, 4,  23, 4,  5,  24, 5,
 };
 
 VertexLayout gVertexLayoutModel = {};
@@ -462,7 +471,7 @@ class PBRCamera : public IApp
 {
 	size_t mProgressBarValue = 0, mProgressBarValueMax = 1024;
 
-	public:
+public:
 	PBRCamera()
 	{
 #ifdef TARGET_IOS
@@ -546,6 +555,10 @@ class PBRCamera : public IApp
 									ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT };
 		addSampler(pRenderer, &samplerDesc, &pSamplerBilinear);
 
+		SamplerDesc biClampSamplerDesc = { FILTER_LINEAR,       FILTER_LINEAR,       MIPMAP_MODE_LINEAR,
+									ADDRESS_MODE_CLAMP_TO_BORDER, ADDRESS_MODE_CLAMP_TO_BORDER, ADDRESS_MODE_CLAMP_TO_BORDER };
+		addSampler(pRenderer, &biClampSamplerDesc, &pSamplerBilinearClamp);
+
 		SamplerDesc nearstSamplerDesc = { FILTER_NEAREST,      FILTER_NEAREST,      MIPMAP_MODE_NEAREST,
 										  ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT };
 		addSampler(pRenderer, &nearstSamplerDesc, &pSamplerNearest);
@@ -608,6 +621,22 @@ class PBRCamera : public IApp
 		brdfRootDesc.ppStaticSamplers = pStaticSamplers2;
 		addRootSignature(pRenderer, &brdfRootDesc, &pRootSigBRDF);
 
+		{
+			ShaderLoadDesc LuminanceShaderDesc = {};
+			LuminanceShaderDesc.mStages[0] = { "FullscreenTriangle.vert", nullptr, 0 };
+			LuminanceShaderDesc.mStages[1] = { "LuminanceDownsample.frag", nullptr, 0 };
+			addShader(pRenderer, &LuminanceShaderDesc, &pLuminanceShader);
+
+			const char* pStaticSampler4LuminanceNames[] = { "bilinearClampSampler" };
+			Sampler*    pStaticSamplers4Luminance[] = { pSamplerBilinearClamp };
+
+			RootSignatureDesc luminanceRootDesc = { &pLuminanceShader, 1 };
+			luminanceRootDesc.mStaticSamplerCount = 1;
+			luminanceRootDesc.ppStaticSamplerNames = pStaticSampler4LuminanceNames;
+			luminanceRootDesc.ppStaticSamplers = pStaticSamplers4Luminance;
+			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceRootSig);
+		}
+
 		// PPR_HolePatching
 		ShaderLoadDesc PPR_HolePatchingShaderDesc = {};
 		PPR_HolePatchingShaderDesc.mStages[0] = { "PPR_Holepatching.vert", NULL, 0 };
@@ -647,7 +676,7 @@ class PBRCamera : public IApp
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetBRDF[0]);
 		setDesc = { pRootSigBRDF, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetBRDF[1]);
-		// PPR Projection
+
 		// PPR Hole Patching
 		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetPPR__HolePatching[0]);
@@ -940,7 +969,7 @@ class PBRCamera : public IApp
 					   },
 					   this };
 		addInputAction(&actionDesc);
-		typedef bool (*CameraInputHandler)(InputActionContext * ctx, uint32_t index);
+		typedef bool(*CameraInputHandler)(InputActionContext * ctx, uint32_t index);
 		static CameraInputHandler onCameraInput = [](InputActionContext* ctx, uint32_t index) {
 			if (!gAppUI.IsFocused() && *ctx->pCaptured)
 			{
@@ -1001,6 +1030,7 @@ class PBRCamera : public IApp
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[2]);
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[1]);
+		removeDescriptorSet(pRenderer, pLuminanceDescriptor[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 
 		for (uint32_t i = 0; i < gImageCount; ++i)
@@ -1038,14 +1068,17 @@ class PBRCamera : public IApp
 		gAppUI.Exit();
 
 		removeShader(pRenderer, pPPR_HolePatchingShader);
+		removeShader(pRenderer, pLuminanceShader);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
 		removeShader(pRenderer, pShaderGbuffers);
 
 		removeSampler(pRenderer, pSamplerBilinear);
+		removeSampler(pRenderer, pSamplerBilinearClamp);
 		removeSampler(pRenderer, pSamplerNearest);
 
 		removeRootSignature(pRenderer, pPPR_HolePatchingRootSignature);
+		removeRootSignature(pRenderer, pLuminanceRootSig);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
@@ -1098,7 +1131,7 @@ class PBRCamera : public IApp
 
 		static const int skyboxIndex = 0;
 		const char*      skyboxNames[] = {
-            "LA_Helipad",
+			"LA_Helipad",
 		};
 		// PBR Texture values (these values are mirrored on the shaders).
 		static const uint32_t gBRDFIntegrationSize = 512;
@@ -1437,7 +1470,7 @@ class PBRCamera : public IApp
 
 		if (!addDepthBuffer())
 			return false;
-			
+
 		if (!addLuminanceBuffer())
 			return false;
 
@@ -1549,6 +1582,37 @@ class PBRCamera : public IApp
 		pipelineSettings.pRasterizerState = &rasterizerStateDesc;
 		addPipeline(pRenderer, &desc, &pPipelineBRDF);
 
+		// luminance downsample
+		{
+			//Luminance downsampling
+			DescriptorSetDesc setDesc = { pLuminanceRootSig, DESCRIPTOR_UPDATE_FREQ_PER_DRAW, pLuminanceBufferMipsCount - 1u };
+			addDescriptorSet(pRenderer, &setDesc, &pLuminanceDescriptor[0]);
+
+			DescriptorData pLuminanceParams[1] = {};
+			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
+			{
+				pLuminanceParams[0].pName = "LuminancePrevMip";
+				pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[i]->pTexture;
+				updateDescriptorSet(pRenderer, i, pLuminanceDescriptor[0], 1, pLuminanceParams);
+			}
+
+			pipelineSettings = { 0 };
+			pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			pipelineSettings.mRenderTargetCount = 1;
+			pipelineSettings.pDepthState = NULL;
+
+			pipelineSettings.pColorFormats = &pLuminanceBuffer->mFormat;
+			pipelineSettings.mSampleCount = pLuminanceBuffer->mSampleCount;
+			pipelineSettings.mSampleQuality = pLuminanceBuffer->mSampleQuality;
+
+			pipelineSettings.mDepthStencilFormat = TinyImageFormat_UNDEFINED;
+			pipelineSettings.pRootSignature = pLuminanceRootSig;
+			pipelineSettings.pShaderProgram = pLuminanceShader;
+			pipelineSettings.pVertexLayout = nullptr;
+			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pLuminancePipeline);
+		}
+
 		////PPR_HolePatching -> Present
 		pipelineSettings = { 0 };
 		pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
@@ -1584,12 +1648,16 @@ class PBRCamera : public IApp
 
 		removePipeline(pRenderer, pPipelineBRDF);
 		removePipeline(pRenderer, pSkyboxPipeline);
+		removePipeline(pRenderer, pLuminancePipeline);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
 
 		removeRenderTarget(pRenderer, pDepthBuffer);
 		removeRenderTarget(pRenderer, pSceneBuffer);
-		removeRenderTarget(pRenderer, pLuminanceBuffer);
+		for (uint32_t i = 0; i < pLuminanceBufferMipsCount; ++i)
+		{
+			removeRenderTarget(pRenderer, pLuminanceBufferMips[i]);
+		}
 
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 			removeRenderTarget(pRenderer, pRenderTargetDeferredPass[0][i]);
@@ -1708,8 +1776,37 @@ class PBRCamera : public IApp
 
 		cmdBeginGpuFrameProfile(cmd, gGpuProfileToken);
 
-		//Clear G-buffers and Depth buffer
+		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Downsample Luminance");
 		LoadActionsDesc loadActions = {};
+
+		{
+			RenderTargetBarrier rtBarriers[2] = {};
+			for (uint32_t i = 1; i < pLuminanceBufferMipsCount; ++i)
+			{
+				RenderTarget* pSource = pLuminanceBufferMips[i - 1];
+				RenderTarget* pDestination = pLuminanceBufferMips[i];
+				rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+				loadActions = {};
+
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_DONTCARE;
+				loadActions.mClearColorValues[0] = pDestination->mClearValue;
+
+				cmdBindRenderTargets(cmd, 1, &pDestination, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, static_cast<f32>(pDestination->mWidth), static_cast<f32>(pDestination->mHeight), 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pDestination->mWidth, pDestination->mHeight);
+
+				cmdBindPipeline(cmd, pLuminancePipeline);
+				cmdBindDescriptorSet(cmd, i - 1u, pLuminanceDescriptor[0]);
+				cmdDraw(cmd, 3, 0);
+			}
+		}
+
+		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+
+		//Clear G-buffers and Depth buffer
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 		{
 			loadActions.mLoadActionsColor[i] = LOAD_ACTION_CLEAR;
@@ -1827,9 +1924,9 @@ class PBRCamera : public IApp
 					materialID *= 5;    //because it uses 5 basic textures for redering BRDF
 
 					data.textureMaps = ((gSponzaTextureIndexforMaterial[materialID + 0] & 0xFF) << 0) |
-									   ((gSponzaTextureIndexforMaterial[materialID + 1] & 0xFF) << 8) |
-									   ((gSponzaTextureIndexforMaterial[materialID + 2] & 0xFF) << 16) |
-									   ((gSponzaTextureIndexforMaterial[materialID + 3] & 0xFF) << 24);
+						((gSponzaTextureIndexforMaterial[materialID + 1] & 0xFF) << 8) |
+						((gSponzaTextureIndexforMaterial[materialID + 2] & 0xFF) << 16) |
+						((gSponzaTextureIndexforMaterial[materialID + 3] & 0xFF) << 24);
 
 					cmdBindPushConstants(cmd, pRootSigGbuffers, "cbTextureRootConstants", &data);
 					IndirectDrawIndexArguments& cmdData = sponzaMesh.pDrawArgs[i];
@@ -1932,8 +2029,8 @@ class PBRCamera : public IApp
 		RenderTarget* pRenderTarget = pSwapChain->ppRenderTargets[swapchainImageIndex];
 
 		rtBarriers[0] = { pSceneBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-		rtBarriers[1] = { pLuminanceBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-		rtBarriers[2] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
+		rtBarriers[1] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
+		rtBarriers[2] = { pLuminanceBufferMips[pLuminanceBufferMipsCount - 1], RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
 		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 3, rtBarriers);
 
 		loadActions = {};
@@ -2204,9 +2301,12 @@ class PBRCamera : public IApp
 
 	bool addLuminanceBuffer()
 	{
+		uint32_t width = mSettings.mWidth;
+		uint32_t height = mSettings.mHeight;
 		RenderTargetDesc lumRT = {};
 		lumRT.mFormat = TinyImageFormat_R16_SFLOAT;
-		lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		lumRT.mStartState = RESOURCE_STATE_RENDER_TARGET;
+		lumRT.mMipLevels = 1;
 		lumRT.mWidth = mSettings.mWidth;
 		lumRT.mHeight = mSettings.mHeight;
 		lumRT.mDepth = 1;
@@ -2215,9 +2315,45 @@ class PBRCamera : public IApp
 		lumRT.mSampleCount = SAMPLE_COUNT_1;
 		lumRT.mSampleQuality = 0;
 		lumRT.pName = "Luminance Buffer";
-		lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_BUFFER;
+		lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE /*| DESCRIPTOR_TYPE_RW_BUFFER | DESCRIPTOR_TYPE_RENDER_TARGET_MIP_SLICES*/;
 
 		addRenderTarget(pRenderer, &lumRT, &pLuminanceBuffer);
+		{
+			const char* mip_names[] = {
+				"LuminanceMip1",
+				"LuminanceMip2",
+				"LuminanceMip3",
+				"LuminanceMip4",
+				"LuminanceMip5",
+				"LuminanceMip6",
+				"LuminanceMip7",
+				"LuminanceMip8",
+				"LuminanceMip9",
+				"LuminanceMip10",
+				"LuminanceMip11",
+				"LuminanceMip12",
+				"LuminanceMip13",
+				"LuminanceMip14",
+				"LuminanceMip15",
+			};
+			// from nearest power-of-two
+			const uint32_t mip_levels = static_cast<uint32_t>(log2(min(mSettings.mWidth, mSettings.mHeight))) + 1;
+			// to 1x1
+			width = 1u << (mip_levels - 1u), height = 1u << (mip_levels - 1u);
+			lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+			for (uint32_t i = 0; i < mip_levels; ++i)
+			{
+				lumRT.mWidth = width >> i;
+				lumRT.mHeight = height >> i;
+				lumRT.pName = mip_names[i];
+				addRenderTarget(pRenderer, &lumRT, pLuminanceBufferMips + i + 1);
+				
+			}
+
+			pLuminanceBufferMips[0] = pLuminanceBuffer;
+			pLuminanceBufferMipsCount = mip_levels + 1;
+		}
+
 		return nullptr != pLuminanceBuffer;
 	}
 };

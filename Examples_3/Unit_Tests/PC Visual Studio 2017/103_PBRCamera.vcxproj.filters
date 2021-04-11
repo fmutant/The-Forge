@@ -98,5 +98,11 @@
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\PPR_Holepatching.vert">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\103_PBRCamera\Shaders\D3D12\FullscreenTriangle.vert">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+    <None Include="..\src\103_PBRCamera\Shaders\D3D12\LuminanceDownsample.frag">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
   </ItemGroup>
 </Project>
