@@ -28,6 +28,7 @@
 //tiny stl
 #include "../../../../Common_3/ThirdParty/OpenSource/EASTL/vector.h"
 #include "../../../../Common_3/ThirdParty/OpenSource/EASTL/string.h"
+#include "../../../../Common_3/ThirdParty/OpenSource/EASTL/numeric_limits.h"
 
 //Interfaces
 #include "../../../../Common_3/OS/Interfaces/ICameraController.h"
@@ -53,10 +54,27 @@
 
 #include "../../../../Common_3/OS/Interfaces/IMemory.h"
 
+#include "../../../../Common_3/ThirdParty/OpenSource/tinyimageformat/tinyimageformat_query.h"
+
 #define DEFERRED_RT_COUNT 4
 //#define MAX_PLANES 4
 
 typedef float f32;
+
+inline float half2float(uint16_t value)
+{
+	float out;
+	int abs = value & 0x7FFF;
+	if (abs > 0x7C00)
+		out = eastl::numeric_limits<f32>::has_quiet_NaN ? eastl::numeric_limits<f32>::quiet_NaN() : 0.0f;
+	else if (abs == 0x7C00)
+		out = eastl::numeric_limits<f32>::has_infinity ? eastl::numeric_limits<f32>::infinity() : eastl::numeric_limits<f32>::max();
+	else if (abs > 0x3FF)
+		out = ldexpf(static_cast<f32>((value & 0x3FF) | 0x400), (abs >> 10) - 25);
+	else
+		out = ldexpf(static_cast<float>(abs), -24);
+	return (value & 0x8000) ? -out : out;
+}
 
 namespace Exposure
 {
@@ -340,7 +358,8 @@ RenderTarget* pDepthBuffer = NULL;
 RenderTarget* pLuminanceBuffer = nullptr;
 RenderTarget* pLuminanceBufferMips[16] = {};
 uint32_t pLuminanceBufferMipsCount = 0;
-
+Buffer* pLuminanceReadback[gImageCount] = {};
+f32 fLuminanceAverage = 0.0f;
 
 Fence*        pRenderCompleteFences[gImageCount] = { NULL };
 Semaphore*    pImageAcquiredSemaphore = NULL;
@@ -431,7 +450,10 @@ Sampler* pSamplerLinear = NULL;
 Sampler* pSamplerNearest = NULL;
 
 uint32_t gFrameIndex = 0;
+uint32_t gFrameIndexPrev = gImageCount;
+uint32_t gFrameIndexNext = gFrameIndex + 1;
 uint32_t gFrameFlipFlop = 0;
+uint32_t gFrameFlopFlip = gFrameFlipFlop ^ 1;
 
 eastl::vector<Buffer*> gSphereBuffers;
 
@@ -886,11 +908,7 @@ public:
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
 
-		DropdownWidget ddTestScripts("Test Scripts", &gCurrentScriptIndex, gTestScripts, gScriptIndexes, sizeof(gTestScripts) / sizeof(gTestScripts[0]));
-		ButtonWidget bRunScript("Run");
-		bRunScript.pOnEdited = RunScript;
-		pGui->AddWidget(ddTestScripts);
-		pGui->AddWidget(bRunScript);
+		pGui->AddWidget(SliderFloatWidget("Luminance", &fLuminanceAverage, -100.0f, 1000.0f, 1.0f));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1658,6 +1676,9 @@ public:
 		{
 			removeRenderTarget(pRenderer, pLuminanceBufferMips[i]);
 		}
+		extern void removeBuffer(Renderer* pRenderer, Buffer* pBuffer);
+		for (uint32_t i = 0; i < gImageCount; ++i)
+			removeBuffer(pRenderer, pLuminanceReadback[i]);
 
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 			removeRenderTarget(pRenderer, pRenderTargetDeferredPass[0][i]);
@@ -1802,6 +1823,44 @@ public:
 				cmdBindDescriptorSet(cmd, i - 1u, pLuminanceDescriptor[0]);
 				cmdDraw(cmd, 3, 0);
 			}
+
+			Buffer* target_readback = pLuminanceReadback[gFrameFlopFlip];
+			RenderTarget* pLastMip = pLuminanceBufferMips[pLuminanceBufferMipsCount - 1u];
+			// Calculate the size of buffer required for copying the src texture.
+			D3D12_RESOURCE_DESC resourceDesc = pLastMip->pTexture->pDxResource->GetDesc();
+			uint64_t padded_size = 0;
+			uint64_t row_size = 0;
+			uint32_t num_rows = 0;
+			D3D12_PLACED_SUBRESOURCE_FOOTPRINT imageLayout = {};
+			pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &imageLayout, &num_rows, &row_size, &padded_size);
+
+			// Transition layout to copy data out.
+			RenderTargetBarrier srcBarrier = { pLastMip, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_COPY_SOURCE };
+			cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
+
+			D3D12_TEXTURE_COPY_LOCATION src = {};
+			D3D12_TEXTURE_COPY_LOCATION dst = {};
+
+			src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			src.pResource = pLastMip->pTexture->pDxResource;
+			src.SubresourceIndex = 0;
+
+			dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+			dst.pResource = target_readback->pDxResource;
+			cmd->pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &dst.PlacedFootprint, NULL, NULL, NULL);
+
+			cmd->pDxCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
+
+			// Transition layout to original state.
+			srcBarrier = { pLastMip, RESOURCE_STATE_COPY_SOURCE, RESOURCE_STATE_SHADER_RESOURCE };
+			cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
+
+			uint16_t mappedData[128] = {};
+			uint16_t* srcData = static_cast<uint16_t*>(pLuminanceReadback[gFrameFlipFlop]->pCpuMappedAddress);
+			memcpy(mappedData, srcData, row_size);
+
+			f32 luminance_average = half2float(*mappedData);
+			fLuminanceAverage = luminance_average;
 		}
 
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
@@ -2030,8 +2089,7 @@ public:
 
 		rtBarriers[0] = { pSceneBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
 		rtBarriers[1] = { pRenderTarget, RESOURCE_STATE_PRESENT, RESOURCE_STATE_RENDER_TARGET };
-		rtBarriers[2] = { pLuminanceBufferMips[pLuminanceBufferMipsCount - 1], RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 3, rtBarriers);
+		cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
 
 		loadActions = {};
 
@@ -2099,8 +2157,11 @@ public:
 		queuePresent(pGraphicsQueue, &presentDesc);
 		flipProfiler();
 
+		gFrameIndexPrev = gFrameIndex;
 		gFrameIndex = (gFrameIndex + 1) % gImageCount;
+		gFrameIndexNext = (gFrameIndex + 1) % gImageCount;
 		gFrameFlipFlop ^= 1;
+		gFrameFlopFlip ^= 1;
 	}
 
 	const char* GetName() { return "103_PBRCamera"; }
@@ -2318,6 +2379,7 @@ public:
 		lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE /*| DESCRIPTOR_TYPE_RW_BUFFER | DESCRIPTOR_TYPE_RENDER_TARGET_MIP_SLICES*/;
 
 		addRenderTarget(pRenderer, &lumRT, &pLuminanceBuffer);
+		RenderTarget* pLuminanceLastMip = nullptr;
 		{
 			const char* mip_names[] = {
 				"LuminanceMip1",
@@ -2337,9 +2399,9 @@ public:
 				"LuminanceMip15",
 			};
 			// from nearest power-of-two
-			const uint32_t mip_levels = static_cast<uint32_t>(log2(min(mSettings.mWidth, mSettings.mHeight))) + 1;
+			const uint32_t mip_levels = static_cast<uint32_t>(log2(min(mSettings.mWidth, mSettings.mHeight)));
 			// to 1x1
-			width = 1u << (mip_levels - 1u), height = 1u << (mip_levels - 1u);
+			width = 1u << mip_levels, height = 1u << mip_levels;
 			lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
 			for (uint32_t i = 0; i < mip_levels; ++i)
 			{
@@ -2347,11 +2409,37 @@ public:
 				lumRT.mHeight = height >> i;
 				lumRT.pName = mip_names[i];
 				addRenderTarget(pRenderer, &lumRT, pLuminanceBufferMips + i + 1);
-				
 			}
+			lumRT.mWidth = 1;
+			lumRT.mHeight = 1;
+			lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+			addRenderTarget(pRenderer, &lumRT, pLuminanceBufferMips + mip_levels + 1);
 
+			pLuminanceLastMip = pLuminanceBufferMips[mip_levels + 1];
 			pLuminanceBufferMips[0] = pLuminanceBuffer;
-			pLuminanceBufferMipsCount = mip_levels + 1;
+			pLuminanceBufferMipsCount = mip_levels + 2;
+		}
+
+		D3D12_RESOURCE_DESC resourceDesc = pLuminanceLastMip->pTexture->pDxResource->GetDesc();
+		uint64_t padded_size = 0;
+		uint64_t row_size = 0;
+		uint32_t num_rows = 0;
+		D3D12_PLACED_SUBRESOURCE_FOOTPRINT imageLayout = {};
+		pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &imageLayout, &num_rows, &row_size, &padded_size);
+
+		uint16_t formatByteWidth = TinyImageFormat_BitSizeOfBlock(pLuminanceLastMip->mFormat) / 8;
+		BufferDesc bufferDesc = {};
+		bufferDesc.mDescriptors = DESCRIPTOR_TYPE_BUFFER;
+		bufferDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_TO_CPU;
+		bufferDesc.mSize = padded_size;
+		bufferDesc.mFlags = BUFFER_CREATION_FLAG_NO_DESCRIPTOR_VIEW_CREATION | BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
+		bufferDesc.mStartState = RESOURCE_STATE_COPY_DEST;
+		bufferDesc.mFormat = pLuminanceLastMip->mFormat;
+
+		extern void addBuffer(Renderer* pRenderer, const BufferDesc* pDesc, Buffer** ppBuffer);
+		for (uint32_t i = 0; i < gImageCount; ++i)
+		{
+			addBuffer(pRenderer, &bufferDesc, &pLuminanceReadback[i]);
 		}
 
 		return nullptr != pLuminanceBuffer;
