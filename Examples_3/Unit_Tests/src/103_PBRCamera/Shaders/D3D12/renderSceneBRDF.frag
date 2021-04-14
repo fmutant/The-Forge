@@ -189,7 +189,7 @@ PSOutput main(VSOutput input) : SV_TARGET
 	F0 = lerp(F0, albedo, _metalness);
 
 	float3 Lo = float3(0.0, 0.0, 0.0);
-	float3 luminance = float3(0.0f, 0.0f, 0.0f);
+	float3 illuminance = float3(0.0f, 0.0f, 0.0f);
 	//Directional Lights
 	for(int i = 0; i < currAmountOfDLights; ++i)
 	{
@@ -221,12 +221,12 @@ PSOutput main(VSOutput input) : SV_TARGET
 		{
 			float3 diffuse_term = (kD * radiance) * (NdotL / PI);
 			float3 specular_term = specular * radiance * NdotL;
-			luminance += diffuse_term + specular_term;
+			illuminance += diffuse_term;
 			Lo += diffuse_term * albedo + specular_term;
 		}
 		else
 		{
-			luminance += float3(0.0f, 0.0f, 0.0f);
+			illuminance += float3(0.0f, 0.0f, 0.0f);
 			Lo += float3(0.0f, 0.0f, 0.0f);
 		}		
 	}
@@ -273,12 +273,12 @@ PSOutput main(VSOutput input) : SV_TARGET
 		{
 			float3 diffuse_term = (kD * radiance) * (NdotL / PI);
 			float3 specular_term = specular * radiance * NdotL;
-			luminance += diffuse_term + specular_term;
+			illuminance += diffuse_term;
 			Lo += diffuse_term * albedo + specular_term;;
 		}
 		else
 		{
-			luminance += float3(0.0f, 0.0f, 0.0f);
+			illuminance += float3(0.0f, 0.0f, 0.0f);
 			Lo += float3(0.0f, 0.0f, 0.0f);
 		}		
 	}
@@ -300,13 +300,14 @@ PSOutput main(VSOutput input) : SV_TARGET
 	
 	float3 specular = specularColor * (F * brdf.x + brdf.y);
 	
-	luminance += diffuse + specular;
+	illuminance += diffuse;
 	
 	float3 ambient = float3(diffuse * albedo + specular)*float3(ao,ao,ao);
 	
 	float3 color = Lo + ambient * 0.2;
 
     Out.Color = float4(color.r, color.g, color.b, 1.0f);
-	Out.Luminance = log2(dot(luminance, float3(0.2125f, 0.7154f, 0.0721f)));
+	float luminance = dot(illuminance, float3(0.2125f, 0.7154f, 0.0721f));
+	Out.Luminance = log2(max(luminance, 1e-6f));
 	return Out;
 }

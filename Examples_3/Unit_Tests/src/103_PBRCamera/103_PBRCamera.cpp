@@ -78,10 +78,15 @@ inline float half2float(uint16_t value)
 
 namespace Exposure
 {
+	float gAperture; //N
+	float gShutterTime; //t
+	float gISO; //S
+	float gLuminanceAvg;
+
 	//ExposureValue100
-	f32 EV100(f32 N, f32 t)
+	f32 EV100(f32 aperture, f32 shutter_time)
 	{
-		return log2f(N * N / t);
+		return log2f(aperture * aperture / shutter_time);
 	}
 	//ExposureValue100 at sensitivity
 	f32 EV100(f32 aperture, f32 shutter_time, f32 iso)
@@ -125,18 +130,18 @@ namespace Exposure
 	{
 		return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 0.153846f);
 	}
-
 }
 
-struct CameraPBR
+struct UniformDataExposure
 {
 	float mAperture; //N
 	float mShutterTime; //t
 	float mISO; //S
+	float mLuminanceAvg;
 };
 
 // Have a uniform for camera data
-struct UniformCamData
+struct UniformDataCamera
 {
 	mat4 mProjectView;
 	mat4 mPrevProjectView;
@@ -144,7 +149,7 @@ struct UniformCamData
 };
 
 // Have a uniform for extended camera data
-struct UniformExtendedCamData
+struct UniformDataCameraExtended
 {
 	mat4 mViewMat;
 	mat4 mProjMat;
@@ -156,7 +161,7 @@ struct UniformExtendedCamData
 };
 
 // Have a uniform for object data
-struct UniformObjData
+struct UniformDataObject
 {
 	mat4  mWorldMat;
 	mat4  mPrevWorldMat;
@@ -175,7 +180,7 @@ struct Light
 	float _pad1;
 };
 
-struct UniformLightData
+struct UniformDataLight
 {
 	// Used to tell our shaders how many lights are currently present
 	Light mLights[16];    // array of lights seem to be broken so just a single light for now
@@ -189,7 +194,7 @@ struct DirectionalLight
 	vec4 mDir;
 };
 
-struct UniformDirectionalLightData
+struct UniformDataLightDirectional
 {
 	// Used to tell our shaders how many lights are currently present
 	DirectionalLight mLights[16];    // array of lights seem to be broken so just a single light for now
@@ -359,7 +364,6 @@ RenderTarget* pLuminanceBuffer = nullptr;
 RenderTarget* pLuminanceBufferMips[16] = {};
 uint32_t pLuminanceBufferMipsCount = 0;
 Buffer* pLuminanceReadback[gImageCount] = {};
-f32 fLuminanceAverage = 0.0f;
 
 Fence*        pRenderCompleteFences[gImageCount] = { NULL };
 Semaphore*    pImageAcquiredSemaphore = NULL;
@@ -408,7 +412,7 @@ eastl::vector<uint32_t> gInitializeVal;
 
 VirtualJoystickUI gVirtualJoystick;
 
-UniformObjData gUniformDataMVP;
+UniformDataObject gUniformDataMVP;
 
 /************************************************************************/
 // Vertex buffers for the model
@@ -425,20 +429,23 @@ Buffer* pSponzaBuffer;
 Buffer* pLionBuffer;
 
 Buffer*        pBufferUniformCamera[gImageCount] = { NULL };
-UniformCamData gUniformDataCamera;
+UniformDataCamera gUniformDataCamera;
 
-UniformCamData gUniformDataSky;
+Buffer*        pBufferUniformExposure[gImageCount] = { NULL };
+UniformDataExposure gUniformDataExposure;
+
+UniformDataCamera gUniformDataSky;
 
 Buffer*                pBufferUniformExtendedCamera[gImageCount] = { NULL };
-UniformExtendedCamData gUniformDataExtenedCamera;
+UniformDataCameraExtended gUniformDataExtenedCamera;
 
 Buffer* pBufferUniformCameraSky[gImageCount] = { NULL };
 
 Buffer*          pBufferUniformLights = NULL;
-UniformLightData gUniformDataLights;
+UniformDataLight gUniformDataLights;
 
 Buffer*                     pBufferUniformDirectionalLights = NULL;
-UniformDirectionalLightData gUniformDataDirectionalLights;
+UniformDataLightDirectional gUniformDataDirectionalLights;
 
 Shader*   pShaderPostProc = NULL;
 Pipeline* pPipelinePostProc = NULL;
@@ -706,7 +713,7 @@ public:
 		BufferLoadDesc sponza_buffDesc = {};
 		sponza_buffDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		sponza_buffDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
-		sponza_buffDesc.mDesc.mSize = sizeof(UniformObjData);
+		sponza_buffDesc.mDesc.mSize = sizeof(UniformDataObject);
 		sponza_buffDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
 		sponza_buffDesc.pData = NULL;
 		sponza_buffDesc.ppBuffer = &pSponzaBuffer;
@@ -715,7 +722,7 @@ public:
 		BufferLoadDesc lion_buffDesc = {};
 		lion_buffDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		lion_buffDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
-		lion_buffDesc.mDesc.mSize = sizeof(UniformObjData);
+		lion_buffDesc.mDesc.mSize = sizeof(UniformDataObject);
 		lion_buffDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
 		lion_buffDesc.pData = NULL;
 		lion_buffDesc.ppBuffer = &pLionBuffer;
@@ -776,7 +783,7 @@ public:
 		BufferLoadDesc ubCamDesc = {};
 		ubCamDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		ubCamDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
-		ubCamDesc.mDesc.mSize = sizeof(UniformCamData);
+		ubCamDesc.mDesc.mSize = sizeof(UniformDataCamera);
 		ubCamDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
 		ubCamDesc.pData = NULL;
 
@@ -788,11 +795,26 @@ public:
 			addResource(&ubCamDesc, NULL);
 		}
 
+		{
+			BufferLoadDesc ubDescExposure = {};
+			ubDescExposure.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			ubDescExposure.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
+			ubDescExposure.mDesc.mSize = sizeof(UniformDataExposure);
+			ubDescExposure.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
+			ubDescExposure.pData = NULL;
+
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				ubDescExposure.ppBuffer = &pBufferUniformExposure[i];
+				addResource(&ubDescExposure, nullptr);
+			}
+		}
+
 		// Uniform buffer for extended camera data
 		BufferLoadDesc ubECamDesc = {};
 		ubECamDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		ubECamDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
-		ubECamDesc.mDesc.mSize = sizeof(UniformExtendedCamData);
+		ubECamDesc.mDesc.mSize = sizeof(UniformDataCameraExtended);
 		ubECamDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
 		ubECamDesc.pData = NULL;
 
@@ -807,7 +829,7 @@ public:
 		ubLightsDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		ubLightsDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_ONLY;
 		ubLightsDesc.mDesc.mStartState = RESOURCE_STATE_COMMON;
-		ubLightsDesc.mDesc.mSize = sizeof(UniformLightData);
+		ubLightsDesc.mDesc.mSize = sizeof(UniformDataLight);
 		ubLightsDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_NONE;
 		ubLightsDesc.pData = NULL;
 		ubLightsDesc.ppBuffer = &pBufferUniformLights;
@@ -818,7 +840,7 @@ public:
 		ubDLightsDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		ubDLightsDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_ONLY;
 		ubDLightsDesc.mDesc.mStartState = RESOURCE_STATE_COMMON;
-		ubDLightsDesc.mDesc.mSize = sizeof(UniformDirectionalLightData);
+		ubDLightsDesc.mDesc.mSize = sizeof(UniformDataLightDirectional);
 		ubDLightsDesc.mDesc.mFlags = BUFFER_CREATION_FLAG_NONE;
 		ubDLightsDesc.pData = NULL;
 		ubDLightsDesc.ppBuffer = &pBufferUniformDirectionalLights;
@@ -837,7 +859,7 @@ public:
 		gUniformDataMVP.pbrMaterials = 1;
 		BufferUpdateDesc sponza_objBuffUpdateDesc = { pSponzaBuffer };
 		beginUpdateResource(&sponza_objBuffUpdateDesc);
-		*(UniformObjData*)sponza_objBuffUpdateDesc.pMappedData = gUniformDataMVP;
+		*(UniformDataObject*)sponza_objBuffUpdateDesc.pMappedData = gUniformDataMVP;
 		endUpdateResource(&sponza_objBuffUpdateDesc, NULL);
 
 		// Update the uniform buffer for the objects
@@ -849,7 +871,7 @@ public:
 		gUniformDataMVP.pbrMaterials = 1;
 		BufferUpdateDesc lion_objBuffUpdateDesc = { pLionBuffer };
 		beginUpdateResource(&lion_objBuffUpdateDesc);
-		*(UniformObjData*)lion_objBuffUpdateDesc.pMappedData = gUniformDataMVP;
+		*(UniformDataObject*)lion_objBuffUpdateDesc.pMappedData = gUniformDataMVP;
 		endUpdateResource(&lion_objBuffUpdateDesc, NULL);
 
 		// Add light to scene
@@ -888,7 +910,7 @@ public:
 		gUniformDataLights.mCurrAmountOfLights = 4;
 		BufferUpdateDesc lightBuffUpdateDesc = { pBufferUniformLights };
 		beginUpdateResource(&lightBuffUpdateDesc);
-		*(UniformLightData*)lightBuffUpdateDesc.pMappedData = gUniformDataLights;
+		*(UniformDataLight*)lightBuffUpdateDesc.pMappedData = gUniformDataLights;
 		endUpdateResource(&lightBuffUpdateDesc, NULL);
 
 		//Directional light
@@ -901,14 +923,17 @@ public:
 		gUniformDataDirectionalLights.mCurrAmountOfDLights = 1;
 		BufferUpdateDesc directionalLightBuffUpdateDesc = { pBufferUniformDirectionalLights };
 		beginUpdateResource(&directionalLightBuffUpdateDesc);
-		*(UniformDirectionalLightData*)directionalLightBuffUpdateDesc.pMappedData = gUniformDataDirectionalLights;
+		*(UniformDataLightDirectional*)directionalLightBuffUpdateDesc.pMappedData = gUniformDataDirectionalLights;
 		endUpdateResource(&directionalLightBuffUpdateDesc, NULL);
 
 #if !defined(TARGET_IOS)
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
 
-		pGui->AddWidget(SliderFloatWidget("Luminance", &fLuminanceAverage, -100.0f, 1000.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Aperture", &Exposure::gAperture, 2.0f, 16.0f, 2.0f));
+		pGui->AddWidget(SliderFloatWidget("Shutter", &Exposure::gShutterTime, 0.16f, 1.0f, 0.16f));
+		pGui->AddWidget(SliderFloatWidget("ISO", &Exposure::gISO, 100.0f, 800.0f, 100.0f));
+		pGui->AddWidget(SliderFloatWidget("Luminance", &Exposure::gLuminanceAvg, -100.0f, 1000.0f, 1.0f));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1073,6 +1098,7 @@ public:
 			removeResource(pBufferUniformExtendedCamera[i]);
 			removeResource(pBufferUniformCameraSky[i]);
 			removeResource(pBufferUniformCamera[i]);
+			removeResource(pBufferUniformExposure[i]);
 		}
 
 		removeResource(pBufferUniformLights);
@@ -1778,18 +1804,23 @@ public:
 
 		BufferUpdateDesc camBuffUpdateDesc = { pBufferUniformCamera[gFrameIndex] };
 		beginUpdateResource(&camBuffUpdateDesc);
-		*(UniformCamData*)camBuffUpdateDesc.pMappedData = gUniformDataCamera;
+		*(UniformDataCamera*)camBuffUpdateDesc.pMappedData = gUniformDataCamera;
 		endUpdateResource(&camBuffUpdateDesc, NULL);
 
 		BufferUpdateDesc skyboxViewProjCbv = { pBufferUniformCameraSky[gFrameIndex] };
 		beginUpdateResource(&skyboxViewProjCbv);
-		*(UniformCamData*)skyboxViewProjCbv.pMappedData = gUniformDataSky;
+		*(UniformDataCamera*)skyboxViewProjCbv.pMappedData = gUniformDataSky;
 		endUpdateResource(&skyboxViewProjCbv, NULL);
 
 		BufferUpdateDesc CbvExtendedCamera = { pBufferUniformExtendedCamera[gFrameIndex] };
 		beginUpdateResource(&CbvExtendedCamera);
-		*(UniformExtendedCamData*)CbvExtendedCamera.pMappedData = gUniformDataExtenedCamera;
+		*(UniformDataCameraExtended*)CbvExtendedCamera.pMappedData = gUniformDataExtenedCamera;
 		endUpdateResource(&CbvExtendedCamera, NULL);
+
+		BufferUpdateDesc exposureBuffUpdateDesc = { pBufferUniformExposure[gFrameIndex] };
+		beginUpdateResource(&exposureBuffUpdateDesc);
+		*(UniformDataExposure*)exposureBuffUpdateDesc.pMappedData = gUniformDataExposure;
+		endUpdateResource(&camBuffUpdateDesc, nullptr);
 
 		// Draw G-buffers
 		Cmd* cmd = pCmds[gFrameIndex];
@@ -1860,7 +1891,7 @@ public:
 			memcpy(mappedData, srcData, row_size);
 
 			f32 luminance_average = half2float(*mappedData);
-			fLuminanceAverage = luminance_average;
+			Exposure::gLuminanceAvg = luminance_average;
 		}
 
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
