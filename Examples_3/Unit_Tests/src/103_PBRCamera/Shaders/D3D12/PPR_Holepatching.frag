@@ -22,6 +22,24 @@
  * under the License.
 */
 
+cbuffer cbExposure : register(b0, UPDATE_FREQ_PER_FRAME)
+{
+	float aperture;
+	float shutter;
+	float iso;
+	float luminance;
+	
+	float EVmanual;
+	float EVmanualSAT;
+	float EVmanualSOS;
+	float pad0;
+	
+	float EVaverage;
+	float EVauto;
+	float pad1;
+	uint EVmode;
+}
+
 #define FLT_MAX  3.402823466e+38F
 
 Texture2D SceneTexture : register(t1);
@@ -41,7 +59,7 @@ float4 main(VSOutput input) : SV_TARGET
 	float4 outColor = float4(0.0, 0.0, 0.0, 0.0);
 	
 	outColor = SceneTexture.Sample(bilinearSampler, input.uv);
-	outColor = outColor / (outColor + float4(1.0f, 1.0f, 1.0f, 1.0f));
+	outColor = outColor * EVaverage;
 	float gammaCorr = 1.0f / 2.2f;
 
 	outColor.r = pow(outColor.r, gammaCorr);
@@ -49,5 +67,5 @@ float4 main(VSOutput input) : SV_TARGET
 	outColor.b = pow(outColor.b, gammaCorr);
 	outColor.w = 1.0f;
 
-	return outColor;	
+	return outColor;
 }

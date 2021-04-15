@@ -78,10 +78,16 @@ inline float half2float(uint16_t value)
 
 namespace Exposure
 {
-	float gAperture; //N
-	float gShutterTime; //t
-	float gISO; //S
-	float gLuminanceAvg;
+	f32 gAperture; //N
+	f32 gShutterTime; //t
+	f32 gISO; //S
+	f32 gExposureComp;
+	f32 gLuminanceAvg;
+
+	f32 gEVmanual;
+	f32 gEVmanualSAT;
+	f32 gEVmanualSOS;
+	f32 gEVaverage;
 
 	//ExposureValue100
 	f32 EV100(f32 aperture, f32 shutter_time)
@@ -134,10 +140,20 @@ namespace Exposure
 
 struct UniformDataExposure
 {
-	float mAperture; //N
-	float mShutterTime; //t
-	float mISO; //S
-	float mLuminanceAvg;
+	f32 mAperture; //N
+	f32 mShutterTime; //t
+	f32 mISO; //S
+	f32 mLuminanceAvg;
+
+	f32 mEVmanual;
+	f32 mEVmanualSAT;
+	f32 mEVmanualSOS;
+	f32 pad0 = 0.0f;
+
+	f32 mEVaverage;
+	f32 mEVauto;
+	f32 pad1 = 0.0f;
+	uint mEVmode = 1;
 };
 
 // Have a uniform for camera data
@@ -383,7 +399,7 @@ DescriptorSet* pDescriptorSetSkybox[2] = { NULL };
 Shader*        pPPR_HolePatchingShader = NULL;
 RootSignature* pPPR_HolePatchingRootSignature = NULL;
 Pipeline*      pPPR_HolePatchingPipeline = NULL;
-DescriptorSet* pDescriptorSetPPR__HolePatching[1] = { NULL };
+DescriptorSet* pDescriptorSetPPR__HolePatching[2] = { NULL };
 
 Buffer* pScreenQuadVertexBuffer = NULL;
 
@@ -709,6 +725,8 @@ public:
 		// PPR Hole Patching
 		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetPPR__HolePatching[0]);
+		setDesc = { pPPR_HolePatchingRootSignature, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetPPR__HolePatching[1]);
 
 		BufferLoadDesc sponza_buffDesc = {};
 		sponza_buffDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -933,7 +951,15 @@ public:
 		pGui->AddWidget(SliderFloatWidget("Aperture", &Exposure::gAperture, 2.0f, 16.0f, 2.0f));
 		pGui->AddWidget(SliderFloatWidget("Shutter", &Exposure::gShutterTime, 0.16f, 1.0f, 0.16f));
 		pGui->AddWidget(SliderFloatWidget("ISO", &Exposure::gISO, 100.0f, 800.0f, 100.0f));
+		pGui->AddWidget(SliderFloatWidget("EC", &Exposure::gExposureComp, -4.0f, 4.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Luminance", &Exposure::gLuminanceAvg, -100.0f, 1000.0f, 1.0f));
+
+		constexpr f32 minLuminance = -4.0f;
+		constexpr f32 maxLuminance = 28.0f;
+		pGui->AddWidget(SliderFloatWidget("EV manual", &Exposure::gEVmanual, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual SAT", &Exposure::gEVmanualSAT, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual SOS", &Exposure::gEVmanualSOS, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV average", &Exposure::gEVaverage, minLuminance, maxLuminance, 1.0f));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1075,6 +1101,7 @@ public:
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[1]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptor[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
+		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[1]);
 
 		for (uint32_t i = 0; i < gImageCount; ++i)
 		{
@@ -1759,6 +1786,23 @@ public:
 		gUniformDataSky = gUniformDataCamera;
 		gUniformDataSky.mProjectView = projMat * viewMat;
 
+		// exposure
+		{
+			using namespace Exposure;
+			f32 ev100 = EV100(gAperture, gShutterTime, gISO);
+			gUniformDataExposure.mAperture = gAperture;
+			gUniformDataExposure.mShutterTime = gShutterTime;
+			gUniformDataExposure.mISO = gISO;
+			gUniformDataExposure.mLuminanceAvg = gLuminanceAvg;
+
+			gUniformDataExposure.mEVmanual = gEVmanual = EV100Comp(ev100, gExposureComp);
+			gUniformDataExposure.mEVmanualSAT = gEVmanualSAT = EV100Comp(ExposureSAT(gAperture, gShutterTime, gISO), gExposureComp);
+			gUniformDataExposure.mEVmanualSOS = gEVmanualSOS = EV100Comp(ExposureSOS(gAperture, gShutterTime, gISO), gExposureComp);
+			gUniformDataExposure.mEVaverage = gEVaverage = EV100Comp(EP(gAperture, gShutterTime, gLuminanceAvg), Exposure::gExposureComp);
+			gUniformDataExposure.mEVauto = 0.0f;
+			gUniformDataExposure.mEVmode = 1u;
+		}
+
 		//data uniforms
 		gUniformDataExtenedCamera.mCameraWorldPos = vec4(pCameraController->getViewPosition(), 1.0);
 		gUniformDataExtenedCamera.mViewMat = pCameraController->getViewMatrix();
@@ -2133,6 +2177,7 @@ public:
 
 		cmdBindPipeline(cmd, pPPR_HolePatchingPipeline);
 		cmdBindDescriptorSet(cmd, 0, pDescriptorSetPPR__HolePatching[0]);
+		cmdBindDescriptorSet(cmd, gFrameIndex, pDescriptorSetPPR__HolePatching[1]);
 		cmdBindVertexBuffer(cmd, 1, &pScreenQuadVertexBuffer, &quadStride, NULL);
 		cmdDraw(cmd, 3, 0);
 
@@ -2262,6 +2307,13 @@ public:
 			PPR_HolePatchingParams[0].pName = "SceneTexture";
 			PPR_HolePatchingParams[0].ppTextures = &pSceneBuffer->pTexture;
 			updateDescriptorSet(pRenderer, 0, pDescriptorSetPPR__HolePatching[0], 1, PPR_HolePatchingParams);
+
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				PPR_HolePatchingParams[0].pName = "cbExposure";
+				PPR_HolePatchingParams[0].ppBuffers = &pBufferUniformExposure[i];
+				updateDescriptorSet(pRenderer, i, pDescriptorSetPPR__HolePatching[1], 1, PPR_HolePatchingParams);
+			}
 		}
 	}
 
