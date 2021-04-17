@@ -83,6 +83,7 @@ namespace Exposure
 	f32 gISO; //S
 	f32 gExposureComp;
 	f32 gLuminanceAvg;
+	uint gEVmode{ 0 };
 
 	f32 gEVmanual;
 	f32 gEVmanualSAT;
@@ -953,13 +954,14 @@ public:
 		pGui->AddWidget(SliderFloatWidget("ISO", &Exposure::gISO, 100.0f, 800.0f, 100.0f));
 		pGui->AddWidget(SliderFloatWidget("EC", &Exposure::gExposureComp, -4.0f, 4.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Luminance", &Exposure::gLuminanceAvg, -100.0f, 1000.0f, 1.0f));
+		pGui->AddWidget(SliderUintWidget("EV method: ", &Exposure::gEVmode, 0, 4));
 
 		constexpr f32 minLuminance = -4.0f;
 		constexpr f32 maxLuminance = 28.0f;
-		pGui->AddWidget(SliderFloatWidget("EV manual", &Exposure::gEVmanual, minLuminance, maxLuminance, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("EV manual SAT", &Exposure::gEVmanualSAT, minLuminance, maxLuminance, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("EV manual SOS", &Exposure::gEVmanualSOS, minLuminance, maxLuminance, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("EV average", &Exposure::gEVaverage, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual: ", &Exposure::gEVmanual, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual SAT: ", &Exposure::gEVmanualSAT, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual SOS: ", &Exposure::gEVmanualSOS, minLuminance, maxLuminance, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV average: ", &Exposure::gEVaverage, minLuminance, maxLuminance, 1.0f));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1800,7 +1802,7 @@ public:
 			gUniformDataExposure.mEVmanualSOS = gEVmanualSOS = EV100Comp(ExposureSOS(gAperture, gShutterTime, gISO), gExposureComp);
 			gUniformDataExposure.mEVaverage = gEVaverage = EV100Comp(EP(gAperture, gShutterTime, gLuminanceAvg), Exposure::gExposureComp);
 			gUniformDataExposure.mEVauto = 0.0f;
-			gUniformDataExposure.mEVmode = 1u;
+			gUniformDataExposure.mEVmode = gEVmode;
 		}
 
 		//data uniforms

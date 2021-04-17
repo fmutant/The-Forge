@@ -58,8 +58,18 @@ float4 main(VSOutput input) : SV_TARGET
 {	
 	float4 outColor = float4(0.0, 0.0, 0.0, 0.0);
 	
+	float EVtarget = 1.0f;
+	switch (EVmode)
+	{
+		case 0: EVtarget = EVmanual; break;
+		case 1: EVtarget = EVmanualSAT; break;
+		case 2: EVtarget = EVmanualSOS; break;
+		case 3: EVtarget = EVaverage; break;
+		default: EVtarget = 1.0f; break;
+	};
+	
 	outColor = SceneTexture.Sample(bilinearSampler, input.uv);
-	outColor = outColor * EVaverage;
+	outColor = outColor * EVtarget;
 	float gammaCorr = 1.0f / 2.2f;
 
 	outColor.r = pow(outColor.r, gammaCorr);
