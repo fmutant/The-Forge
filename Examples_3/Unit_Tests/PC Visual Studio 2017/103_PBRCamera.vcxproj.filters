@@ -107,5 +107,8 @@
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\LuminanceDownsample.comp">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\103_PBRCamera\Shaders\D3D12\LuminanceCopy.comp">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
   </ItemGroup>
 </Project>

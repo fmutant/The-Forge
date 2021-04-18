@@ -432,6 +432,13 @@ Pipeline* pLuminancePipelineCompute = nullptr;
 RootSignature* pLuminanceRootSigCompute = nullptr;
 DescriptorSet* pLuminanceDescriptorCompute[1] = { nullptr };
 
+
+#define LUMINANCE_COPY_COMPUTE 0
+Shader* pLuminanceCopyShaderCompute = nullptr;
+Pipeline* pLuminanceCopyPipelineCompute = nullptr;
+RootSignature* pLuminanceCopyRootSigCompute = nullptr;
+DescriptorSet* pLuminanceCopyDescriptorCompute[1] = { nullptr };
+
 Texture* pSkybox = NULL;
 Texture* pBRDFIntegrationMap = NULL;
 Texture* pIrradianceMap = NULL;
@@ -709,6 +716,15 @@ public:
 			RootSignatureDesc luminanceRootDesc = { &pLuminanceShaderCompute, 1 };
 			luminanceRootDesc.mStaticSamplerCount = 0;
 			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceRootSigCompute);
+		}
+		{
+			ShaderLoadDesc LuminanceShaderDesc = {};
+			LuminanceShaderDesc.mStages[0] = { "LuminanceCopy.comp", nullptr, 0 };
+			addShader(pRenderer, &LuminanceShaderDesc, &pLuminanceCopyShaderCompute);
+
+			RootSignatureDesc luminanceRootDesc = { &pLuminanceCopyShaderCompute, 1 };
+			luminanceRootDesc.mStaticSamplerCount = 0;
+			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceCopyRootSigCompute);
 		}
 		// PPR_HolePatching
 		ShaderLoadDesc PPR_HolePatchingShaderDesc = {};
@@ -1130,6 +1146,7 @@ public:
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[1]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptor[0]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute[0]);
+		removeDescriptorSet(pRenderer, pLuminanceCopyDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[1]);
 
@@ -1171,6 +1188,7 @@ public:
 		removeShader(pRenderer, pPPR_HolePatchingShader);
 		removeShader(pRenderer, pLuminanceShader);
 		removeShader(pRenderer, pLuminanceShaderCompute);
+		removeShader(pRenderer, pLuminanceCopyShaderCompute);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
 		removeShader(pRenderer, pShaderGbuffers);
@@ -1182,6 +1200,7 @@ public:
 		removeRootSignature(pRenderer, pPPR_HolePatchingRootSignature);
 		removeRootSignature(pRenderer, pLuminanceRootSig);
 		removeRootSignature(pRenderer, pLuminanceRootSigCompute);
+		removeRootSignature(pRenderer, pLuminanceCopyRootSigCompute);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
@@ -1738,6 +1757,25 @@ public:
 			pipelineSettings.pRootSignature = pLuminanceRootSigCompute;
 			addPipeline(pRenderer, &desc_compute, &pLuminancePipelineCompute);
 		}
+		{
+			//Luminance copy compute
+			DescriptorSetDesc setDesc = { pLuminanceCopyRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1u };
+			addDescriptorSet(pRenderer, &setDesc, &pLuminanceCopyDescriptorCompute[0]);
+
+			DescriptorData pLuminanceParams[2] = {};
+			pLuminanceParams[0].pName = "LuminanceTexture";
+			pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[0]->pTexture;
+			pLuminanceParams[1].pName = "LuminanceMip0";
+			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[1]->pTexture;
+			updateDescriptorSet(pRenderer, 0, pLuminanceCopyDescriptorCompute[0], 2, pLuminanceParams);
+
+			PipelineDesc desc_compute = {};
+			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+			ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
+			pipelineSettings.pShaderProgram = pLuminanceCopyShaderCompute;
+			pipelineSettings.pRootSignature = pLuminanceCopyRootSigCompute;
+			addPipeline(pRenderer, &desc_compute, &pLuminanceCopyPipelineCompute);
+		}
 
 		////PPR_HolePatching -> Present
 		pipelineSettings = { 0 };
@@ -1776,6 +1814,7 @@ public:
 		removePipeline(pRenderer, pSkyboxPipeline);
 		removePipeline(pRenderer, pLuminancePipeline);
 		removePipeline(pRenderer, pLuminancePipelineCompute);
+		removePipeline(pRenderer, pLuminanceCopyPipelineCompute);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
 
@@ -1938,6 +1977,85 @@ public:
 
 		cmdBeginGpuFrameProfile(cmd, gGpuProfileToken);
 		LoadActionsDesc loadActions = {};
+
+		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Downsample Luminance");
+		if (gRunDownsampleOnCompute)
+		{
+			RenderTargetBarrier rtBarriers[2] = {};
+			{
+#if LUMINANCE_COPY_COMPUTE
+				rtBarriers[0] = { pLuminanceBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				rtBarriers[1] = { pLuminanceBufferMips[1], RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+				uint32_t width_src = pLuminanceBuffer->mWidth, height_src = pLuminanceBuffer->mHeight;
+				uint32_t width_dst = pLuminanceBufferMips[1]->mWidth, height_dst = pLuminanceBufferMips[1]->mHeight;
+				cmdBindPipeline(cmd, pLuminanceCopyPipelineCompute);
+				cmdBindDescriptorSet(cmd, 0, pLuminanceCopyDescriptorCompute[0]);
+				cmdDispatch(cmd, width_dst >> 5u, height_dst >> 5u, 1);*/
+#else
+				RenderTarget* pSource = pLuminanceBuffer;
+				RenderTarget* pDestination = pLuminanceBufferMips[1];
+				rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+				loadActions = {};
+
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_DONTCARE;
+				loadActions.mClearColorValues[0] = pDestination->mClearValue;
+
+				cmdBindRenderTargets(cmd, 1, &pDestination, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, static_cast<f32>(pDestination->mWidth), static_cast<f32>(pDestination->mHeight), 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pDestination->mWidth, pDestination->mHeight);
+
+				cmdBindPipeline(cmd, pLuminancePipeline);
+				cmdBindDescriptorSet(cmd, 0, pLuminanceDescriptor[0]);
+				cmdDraw(cmd, 3, 0);
+#endif
+			}
+			rtBarriers[0] = { pLuminanceBufferMips[1], RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+			for (uint32_t i = 1; i < pLuminanceBufferMipsCount - 1; ++i)
+			{
+				RenderTarget* pSource = pLuminanceBufferMips[i];
+				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
+				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+				uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
+				uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
+
+				cmdBindPipeline(cmd, pLuminancePipelineCompute);
+				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptorCompute[0]);
+				cmdDispatch(cmd, width_dst, height_dst, 1);
+				rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+			}
+		}
+		else
+		{
+			RenderTargetBarrier rtBarriers[2] = {};
+			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
+			{
+				RenderTarget* pSource = pLuminanceBufferMips[i];
+				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
+				rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+				loadActions = {};
+
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_DONTCARE;
+				loadActions.mClearColorValues[0] = pDestination->mClearValue;
+
+				cmdBindRenderTargets(cmd, 1, &pDestination, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, static_cast<f32>(pDestination->mWidth), static_cast<f32>(pDestination->mHeight), 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pDestination->mWidth, pDestination->mHeight);
+
+				cmdBindPipeline(cmd, pLuminancePipeline);
+				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptor[0]);
+				cmdDraw(cmd, 3, 0);
+			}
+		}
+		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		//Clear G-buffers and Depth buffer
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
@@ -2157,50 +2275,7 @@ public:
 
 		cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
 
-		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Downsample Luminance");
-		if (gRunDownsampleOnCompute)
-		{
-			rtBarriers[0] = { pLuminanceBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
-			{
-				RenderTarget* pSource = pLuminanceBufferMips[i];
-				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
-				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
-				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
-
-				uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
-				uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
-				
-				cmdBindPipeline(cmd, pLuminancePipelineCompute);
-				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptorCompute[0]);
-				cmdDispatch(cmd, width_dst, height_dst, 1);
-				rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
-			}
-		}
-		else
-		{
-			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
-			{
-				RenderTarget* pSource = pLuminanceBufferMips[i];
-				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
-				rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
-				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
-
-				loadActions = {};
-
-				loadActions.mLoadActionsColor[0] = LOAD_ACTION_DONTCARE;
-				loadActions.mClearColorValues[0] = pDestination->mClearValue;
-
-				cmdBindRenderTargets(cmd, 1, &pDestination, nullptr, &loadActions, nullptr, nullptr, -1, -1);
-				cmdSetViewport(cmd, 0.0f, 0.0f, static_cast<f32>(pDestination->mWidth), static_cast<f32>(pDestination->mHeight), 0.0f, 1.0f);
-				cmdSetScissor(cmd, 0, 0, pDestination->mWidth, pDestination->mHeight);
-
-				cmdBindPipeline(cmd, pLuminancePipeline);
-				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptor[0]);
-				cmdDraw(cmd, 3, 0);
-			}
-		}
+		
 		// average luminance readback
 		{
 			Buffer* target_readback = pLuminanceReadback[gFrameFlopFlip];
@@ -2241,8 +2316,6 @@ public:
 			f32 luminance_average = half2float(*mappedData);
 			Exposure::gLuminanceAvg = luminance_average;
 		}
-
-		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Apply Reflections");
 
@@ -2535,7 +2608,7 @@ public:
 		uint32_t height = mSettings.mHeight;
 		RenderTargetDesc lumRT = {};
 		lumRT.mFormat = TinyImageFormat_R16_SFLOAT;
-		lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		lumRT.mStartState = RESOURCE_STATE_RENDER_TARGET;
 		lumRT.mMipLevels = 1;
 		lumRT.mWidth = mSettings.mWidth;
 		lumRT.mHeight = mSettings.mHeight;
