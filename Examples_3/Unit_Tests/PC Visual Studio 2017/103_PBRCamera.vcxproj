@@ -30,6 +30,7 @@
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\fillGbuffers.vert" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\FullscreenTriangle.vert" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\generateMips.comp" />
+    <None Include="..\src\103_PBRCamera\Shaders\D3D12\LuminanceDownsample.comp" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\LuminanceDownsample.frag" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\panoToCube.comp" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\PPR_Holepatching.frag" />

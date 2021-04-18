@@ -29,8 +29,8 @@ cbuffer cbExposure : register(b0, UPDATE_FREQ_PER_FRAME)
 	float iso;
 	float luminance;
 	
-	float EVmanual;
-	float EVmanualSAT;
+	float EV100;
+	float EVmanualSBS;
 	float EVmanualSOS;
 	float pad0;
 	
@@ -61,10 +61,9 @@ float4 main(VSOutput input) : SV_TARGET
 	float EVtarget = 1.0f;
 	switch (EVmode)
 	{
-		case 0: EVtarget = EVmanual; break;
-		case 1: EVtarget = EVmanualSAT; break;
-		case 2: EVtarget = EVmanualSOS; break;
-		case 3: EVtarget = EVaverage; break;
+		case 0: EVtarget = EVmanualSBS; break;
+		case 1: EVtarget = EVmanualSOS; break;
+		case 2: EVtarget = exp(EVaverage); break;
 		default: EVtarget = 1.0f; break;
 	};
 	

@@ -85,9 +85,11 @@ namespace Exposure
 	f32 gLuminanceAvg;
 	uint gEVmode{ 0 };
 
-	f32 gEVmanual;
-	f32 gEVmanualSAT;
+	f32 gEV100;
+	f32 gEVmanualSBS;
+	f32 gEVmanualSBS0;
 	f32 gEVmanualSOS;
+	f32 gEVmanualSOS0;
 	f32 gEVaverage;
 
 	//ExposureValue100
@@ -98,7 +100,7 @@ namespace Exposure
 	//ExposureValue100 at sensitivity
 	f32 EV100(f32 aperture, f32 shutter_time, f32 iso)
 	{
-		return log2f(aperture * aperture * 100.0f / (iso * shutter_time));
+		return log2f(aperture * aperture / shutter_time * 100.0f / iso);
 	}
 	//ExposureValue at sensitivity
 	f32 EV(f32 aperture, f32 shutter_time, f32 iso)
@@ -126,16 +128,26 @@ namespace Exposure
 		float NsqrInv = 1.0f / (aperture * aperture);
 		return q * shutter_time * luminance * NsqrInv;
 	}
-	//ExposurePhotometric from saturation-based speed relation (sat)
-	f32 ExposureSAT(f32 aperture, f32 shutter_time, f32 sensitivity)
+	//ExposurePhotometric from saturation-based speed relation (sbs)
+	f32 ExposureSBS(f32 aperture, f32 shutter_time, f32 sensitivity)
 	{
 		// Lmax is (aperture^2 * 10) / (q * shutter_time * sensitivity)
 		// after a few simplifications the final expressions is (2^(EV100()) * 1.2f)
 		return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 1.2f);
 	}
+	f32 ExposureSBS(f32 ev100)
+	{
+		// Lmax is (aperture^2 * 10) / (q * shutter_time * sensitivity)
+		// after a few simplifications the final expressions is (2^(EV100()) * 1.2f)
+		return 1.0f / (powf(2.0f, ev100) * 1.2f);
+	}
 	f32 ExposureSOS(f32 aperture, f32 shutter_time, f32 sensitivity)
 	{
 		return 1.0f / (powf(2.0f, EV100(aperture, shutter_time, sensitivity)) * 0.153846f);
+	}
+	f32 ExposureSOS(f32 ev100)
+	{
+		return 1.0f / (powf(2.0f, ev100) * 0.153846f);
 	}
 }
 
@@ -146,8 +158,8 @@ struct UniformDataExposure
 	f32 mISO; //S
 	f32 mLuminanceAvg;
 
-	f32 mEVmanual;
-	f32 mEVmanualSAT;
+	f32 mEV100;
+	f32 mEVmanualSBS;
 	f32 mEVmanualSOS;
 	f32 pad0 = 0.0f;
 
@@ -362,6 +374,7 @@ const char* pMaterialImageFileNames[] = {
 const uint32_t gImageCount = 3;
 ProfileToken   gGpuProfileToken;
 bool           gToggleVSync = false;
+bool gRunDownsampleOnCompute = false;
 
 Renderer* pRenderer = NULL;
 UIApp     gAppUI;
@@ -413,6 +426,11 @@ Shader* pLuminanceShader = nullptr;
 Pipeline* pLuminancePipeline = nullptr;
 RootSignature* pLuminanceRootSig = nullptr;
 DescriptorSet* pLuminanceDescriptor[1] = { nullptr };
+
+Shader* pLuminanceShaderCompute = nullptr;
+Pipeline* pLuminancePipelineCompute = nullptr;
+RootSignature* pLuminanceRootSigCompute = nullptr;
+DescriptorSet* pLuminanceDescriptorCompute[1] = { nullptr };
 
 Texture* pSkybox = NULL;
 Texture* pBRDFIntegrationMap = NULL;
@@ -683,6 +701,15 @@ public:
 			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceRootSig);
 		}
 
+		{
+			ShaderLoadDesc LuminanceShaderDesc = {};
+			LuminanceShaderDesc.mStages[0] = { "LuminanceDownsample.comp", nullptr, 0 };
+			addShader(pRenderer, &LuminanceShaderDesc, &pLuminanceShaderCompute);
+
+			RootSignatureDesc luminanceRootDesc = { &pLuminanceShaderCompute, 1 };
+			luminanceRootDesc.mStaticSamplerCount = 0;
+			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceRootSigCompute);
+		}
 		// PPR_HolePatching
 		ShaderLoadDesc PPR_HolePatchingShaderDesc = {};
 		PPR_HolePatchingShaderDesc.mStages[0] = { "PPR_Holepatching.vert", NULL, 0 };
@@ -934,7 +961,7 @@ public:
 
 		//Directional light
 		DirectionalLight dLight;
-		dLight.mCol = vec4(1.0f, 1.0f, 1.0f, 5.0f);
+		dLight.mCol = vec4(1.0f, 1.0f, 1.0f, 1000.0f);
 		dLight.mPos = vec4(0.0f, 0.0f, 0.0f, 0.0f);
 		dLight.mDir = vec4(-1.0f, -1.5f, 1.0f, 0.0f);
 
@@ -948,20 +975,20 @@ public:
 #if !defined(TARGET_IOS)
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
-
-		pGui->AddWidget(SliderFloatWidget("Aperture", &Exposure::gAperture, 2.0f, 16.0f, 2.0f));
-		pGui->AddWidget(SliderFloatWidget("Shutter", &Exposure::gShutterTime, 0.16f, 1.0f, 0.16f));
+		pGui->AddWidget(OneLineCheckboxWidget("Compute downsample", &gRunDownsampleOnCompute, 0xFFFFFFFF));
+		pGui->AddWidget(SliderFloatWidget("Aperture f-stops", &Exposure::gAperture, 1.0f, 22.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Shutter 1/s", &Exposure::gShutterTime, 1.0f, 250.0f, 10.0f));
 		pGui->AddWidget(SliderFloatWidget("ISO", &Exposure::gISO, 100.0f, 800.0f, 100.0f));
-		pGui->AddWidget(SliderFloatWidget("EC", &Exposure::gExposureComp, -4.0f, 4.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EC f-stops", &Exposure::gExposureComp, -4.0f, 4.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Luminance", &Exposure::gLuminanceAvg, -100.0f, 1000.0f, 1.0f));
-		pGui->AddWidget(SliderUintWidget("EV method: ", &Exposure::gEVmode, 0, 4));
+		pGui->AddWidget(SliderUintWidget("EV method: ", &Exposure::gEVmode, 0, 2));
 
-		constexpr f32 minLuminance = -4.0f;
-		constexpr f32 maxLuminance = 28.0f;
-		pGui->AddWidget(SliderFloatWidget("EV manual: ", &Exposure::gEVmanual, minLuminance, maxLuminance, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("EV manual SAT: ", &Exposure::gEVmanualSAT, minLuminance, maxLuminance, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("EV manual SOS: ", &Exposure::gEVmanualSOS, minLuminance, maxLuminance, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("EV average: ", &Exposure::gEVaverage, minLuminance, maxLuminance, 1.0f));
+		constexpr f32 minEV = -4.0f;
+		constexpr f32 maxEV = 28.0f;
+		pGui->AddWidget(SliderFloatWidget("EV100: ", &Exposure::gEV100, minEV, maxEV, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual SBS: ", &Exposure::gEVmanualSBS, minEV, maxEV, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV manual SOS: ", &Exposure::gEVmanualSOS, minEV, maxEV, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV average: ", &Exposure::gEVaverage, minEV, maxEV, 1.0f));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1102,6 +1129,7 @@ public:
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetBRDF[1]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptor[0]);
+		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[1]);
 
@@ -1142,6 +1170,7 @@ public:
 
 		removeShader(pRenderer, pPPR_HolePatchingShader);
 		removeShader(pRenderer, pLuminanceShader);
+		removeShader(pRenderer, pLuminanceShaderCompute);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
 		removeShader(pRenderer, pShaderGbuffers);
@@ -1152,6 +1181,7 @@ public:
 
 		removeRootSignature(pRenderer, pPPR_HolePatchingRootSignature);
 		removeRootSignature(pRenderer, pLuminanceRootSig);
+		removeRootSignature(pRenderer, pLuminanceRootSigCompute);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
@@ -1686,6 +1716,29 @@ public:
 			addPipeline(pRenderer, &desc, &pLuminancePipeline);
 		}
 
+		{
+			//Luminance downsampling compute
+			DescriptorSetDesc setDesc = { pLuminanceRootSigCompute, DESCRIPTOR_UPDATE_FREQ_PER_DRAW, pLuminanceBufferMipsCount - 1u };
+			addDescriptorSet(pRenderer, &setDesc, &pLuminanceDescriptorCompute[0]);
+
+			DescriptorData pLuminanceParams[2] = {};
+			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1u; ++i)
+			{
+				pLuminanceParams[0].pName = "LuminancePrevMip";
+				pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[i]->pTexture;
+				pLuminanceParams[1].pName = "LuminanceCurMip";
+				pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[i + 1]->pTexture;
+				updateDescriptorSet(pRenderer, i, pLuminanceDescriptorCompute[0], 2, pLuminanceParams);
+			}
+
+			PipelineDesc desc_compute = {};
+			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+			ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
+			pipelineSettings.pShaderProgram = pLuminanceShaderCompute;
+			pipelineSettings.pRootSignature = pLuminanceRootSigCompute;
+			addPipeline(pRenderer, &desc_compute, &pLuminancePipelineCompute);
+		}
+
 		////PPR_HolePatching -> Present
 		pipelineSettings = { 0 };
 		pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
@@ -1722,6 +1775,7 @@ public:
 		removePipeline(pRenderer, pPipelineBRDF);
 		removePipeline(pRenderer, pSkyboxPipeline);
 		removePipeline(pRenderer, pLuminancePipeline);
+		removePipeline(pRenderer, pLuminancePipelineCompute);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
 
@@ -1791,16 +1845,26 @@ public:
 		// exposure
 		{
 			using namespace Exposure;
-			f32 ev100 = EV100(gAperture, gShutterTime, gISO);
-			gUniformDataExposure.mAperture = gAperture;
-			gUniformDataExposure.mShutterTime = gShutterTime;
+			f32 apertureInv = gAperture;
+			f32 shutter = 1.0f / gShutterTime;
+			f32 ev100 = EV100(apertureInv, shutter, gISO);
+			gUniformDataExposure.mAperture = apertureInv;
+			gUniformDataExposure.mShutterTime = shutter;
 			gUniformDataExposure.mISO = gISO;
 			gUniformDataExposure.mLuminanceAvg = gLuminanceAvg;
 
-			gUniformDataExposure.mEVmanual = gEVmanual = EV100Comp(ev100, gExposureComp);
-			gUniformDataExposure.mEVmanualSAT = gEVmanualSAT = EV100Comp(ExposureSAT(gAperture, gShutterTime, gISO), gExposureComp);
-			gUniformDataExposure.mEVmanualSOS = gEVmanualSOS = EV100Comp(ExposureSOS(gAperture, gShutterTime, gISO), gExposureComp);
-			gUniformDataExposure.mEVaverage = gEVaverage = EV100Comp(EP(gAperture, gShutterTime, gLuminanceAvg), Exposure::gExposureComp);
+			f32 ev100comp = EV100Comp(ev100, gExposureComp);
+			f32 exposureSBS = ExposureSBS(ev100comp);
+			f32 exposureSBS0 = EV100Comp(ExposureSBS(apertureInv, shutter, gISO), gExposureComp);
+			f32 exposureSOS = ExposureSOS(ev100comp);
+			f32 exposureSOS0 = EV100Comp(ExposureSOS(apertureInv, shutter, gISO), gExposureComp);
+
+			gUniformDataExposure.mEV100 = gEV100 = ev100comp;
+			gUniformDataExposure.mEVmanualSBS = gEVmanualSBS = exposureSBS;
+			gEVmanualSBS0 = exposureSBS0;
+			gUniformDataExposure.mEVmanualSOS = gEVmanualSOS = EV100Comp(ExposureSOS(apertureInv, shutter, gISO), gExposureComp);
+			gEVmanualSOS0 = exposureSOS0;
+			gUniformDataExposure.mEVaverage = gEVaverage = EV100Comp(EP(apertureInv, shutter, gLuminanceAvg), Exposure::gExposureComp);
 			gUniformDataExposure.mEVauto = 0.0f;
 			gUniformDataExposure.mEVmode = gEVmode;
 		}
@@ -1873,74 +1937,7 @@ public:
 		beginCmd(cmd);
 
 		cmdBeginGpuFrameProfile(cmd, gGpuProfileToken);
-
-		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Downsample Luminance");
 		LoadActionsDesc loadActions = {};
-
-		{
-			RenderTargetBarrier rtBarriers[2] = {};
-			for (uint32_t i = 1; i < pLuminanceBufferMipsCount; ++i)
-			{
-				RenderTarget* pSource = pLuminanceBufferMips[i - 1];
-				RenderTarget* pDestination = pLuminanceBufferMips[i];
-				rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
-				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
-
-				loadActions = {};
-
-				loadActions.mLoadActionsColor[0] = LOAD_ACTION_DONTCARE;
-				loadActions.mClearColorValues[0] = pDestination->mClearValue;
-
-				cmdBindRenderTargets(cmd, 1, &pDestination, nullptr, &loadActions, nullptr, nullptr, -1, -1);
-				cmdSetViewport(cmd, 0.0f, 0.0f, static_cast<f32>(pDestination->mWidth), static_cast<f32>(pDestination->mHeight), 0.0f, 1.0f);
-				cmdSetScissor(cmd, 0, 0, pDestination->mWidth, pDestination->mHeight);
-
-				cmdBindPipeline(cmd, pLuminancePipeline);
-				cmdBindDescriptorSet(cmd, i - 1u, pLuminanceDescriptor[0]);
-				cmdDraw(cmd, 3, 0);
-			}
-
-			Buffer* target_readback = pLuminanceReadback[gFrameFlopFlip];
-			RenderTarget* pLastMip = pLuminanceBufferMips[pLuminanceBufferMipsCount - 1u];
-			// Calculate the size of buffer required for copying the src texture.
-			D3D12_RESOURCE_DESC resourceDesc = pLastMip->pTexture->pDxResource->GetDesc();
-			uint64_t padded_size = 0;
-			uint64_t row_size = 0;
-			uint32_t num_rows = 0;
-			D3D12_PLACED_SUBRESOURCE_FOOTPRINT imageLayout = {};
-			pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &imageLayout, &num_rows, &row_size, &padded_size);
-
-			// Transition layout to copy data out.
-			RenderTargetBarrier srcBarrier = { pLastMip, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_COPY_SOURCE };
-			cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
-
-			D3D12_TEXTURE_COPY_LOCATION src = {};
-			D3D12_TEXTURE_COPY_LOCATION dst = {};
-
-			src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-			src.pResource = pLastMip->pTexture->pDxResource;
-			src.SubresourceIndex = 0;
-
-			dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-			dst.pResource = target_readback->pDxResource;
-			cmd->pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &dst.PlacedFootprint, NULL, NULL, NULL);
-
-			cmd->pDxCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
-
-			// Transition layout to original state.
-			srcBarrier = { pLastMip, RESOURCE_STATE_COPY_SOURCE, RESOURCE_STATE_SHADER_RESOURCE };
-			cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
-
-			uint16_t mappedData[128] = {};
-			uint16_t* srcData = static_cast<uint16_t*>(pLuminanceReadback[gFrameFlipFlop]->pCpuMappedAddress);
-			memcpy(mappedData, srcData, row_size);
-
-			f32 luminance_average = half2float(*mappedData);
-			Exposure::gLuminanceAvg = luminance_average;
-		}
-
-		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		//Clear G-buffers and Depth buffer
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
@@ -2159,6 +2156,93 @@ public:
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
+
+		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Downsample Luminance");
+		if (gRunDownsampleOnCompute)
+		{
+			rtBarriers[0] = { pLuminanceBuffer, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
+			{
+				RenderTarget* pSource = pLuminanceBufferMips[i];
+				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
+				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+				uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
+				uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
+				
+				cmdBindPipeline(cmd, pLuminancePipelineCompute);
+				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptorCompute[0]);
+				cmdDispatch(cmd, width_dst, height_dst, 1);
+				rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+			}
+		}
+		else
+		{
+			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
+			{
+				RenderTarget* pSource = pLuminanceBufferMips[i];
+				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
+				rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_RENDER_TARGET };
+				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+				loadActions = {};
+
+				loadActions.mLoadActionsColor[0] = LOAD_ACTION_DONTCARE;
+				loadActions.mClearColorValues[0] = pDestination->mClearValue;
+
+				cmdBindRenderTargets(cmd, 1, &pDestination, nullptr, &loadActions, nullptr, nullptr, -1, -1);
+				cmdSetViewport(cmd, 0.0f, 0.0f, static_cast<f32>(pDestination->mWidth), static_cast<f32>(pDestination->mHeight), 0.0f, 1.0f);
+				cmdSetScissor(cmd, 0, 0, pDestination->mWidth, pDestination->mHeight);
+
+				cmdBindPipeline(cmd, pLuminancePipeline);
+				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptor[0]);
+				cmdDraw(cmd, 3, 0);
+			}
+		}
+		// average luminance readback
+		{
+			Buffer* target_readback = pLuminanceReadback[gFrameFlopFlip];
+			RenderTarget* pLastMip = pLuminanceBufferMips[pLuminanceBufferMipsCount - 1u];
+			// Calculate the size of buffer required for copying the src texture.
+			D3D12_RESOURCE_DESC resourceDesc = pLastMip->pTexture->pDxResource->GetDesc();
+			uint64_t padded_size = 0;
+			uint64_t row_size = 0;
+			uint32_t num_rows = 0;
+			D3D12_PLACED_SUBRESOURCE_FOOTPRINT imageLayout = {};
+			pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &imageLayout, &num_rows, &row_size, &padded_size);
+
+			// Transition layout to copy data out.
+			RenderTargetBarrier srcBarrier = { pLastMip, gRunDownsampleOnCompute ? RESOURCE_STATE_UNORDERED_ACCESS : RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_COPY_SOURCE };
+			cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
+
+			D3D12_TEXTURE_COPY_LOCATION src = {};
+			D3D12_TEXTURE_COPY_LOCATION dst = {};
+
+			src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			src.pResource = pLastMip->pTexture->pDxResource;
+			src.SubresourceIndex = 0;
+
+			dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+			dst.pResource = target_readback->pDxResource;
+			cmd->pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &dst.PlacedFootprint, NULL, NULL, NULL);
+
+			cmd->pDxCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
+
+			// Transition layout to original state.
+			srcBarrier = { pLastMip, RESOURCE_STATE_COPY_SOURCE, RESOURCE_STATE_SHADER_RESOURCE };
+			cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
+
+			uint16_t mappedData[128] = {};
+			uint16_t* srcData = static_cast<uint16_t*>(pLuminanceReadback[gFrameFlipFlop]->pCpuMappedAddress);
+			memcpy(mappedData, srcData, row_size);
+
+			f32 luminance_average = half2float(*mappedData);
+			Exposure::gLuminanceAvg = luminance_average;
+		}
+
+		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Apply Reflections");
 
@@ -2451,7 +2535,7 @@ public:
 		uint32_t height = mSettings.mHeight;
 		RenderTargetDesc lumRT = {};
 		lumRT.mFormat = TinyImageFormat_R16_SFLOAT;
-		lumRT.mStartState = RESOURCE_STATE_RENDER_TARGET;
+		lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
 		lumRT.mMipLevels = 1;
 		lumRT.mWidth = mSettings.mWidth;
 		lumRT.mHeight = mSettings.mHeight;
@@ -2461,7 +2545,7 @@ public:
 		lumRT.mSampleCount = SAMPLE_COUNT_1;
 		lumRT.mSampleQuality = 0;
 		lumRT.pName = "Luminance Buffer";
-		lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE /*| DESCRIPTOR_TYPE_RW_BUFFER | DESCRIPTOR_TYPE_RENDER_TARGET_MIP_SLICES*/;
+		lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE;
 
 		addRenderTarget(pRenderer, &lumRT, &pLuminanceBuffer);
 		RenderTarget* pLuminanceLastMip = nullptr;
@@ -2488,6 +2572,8 @@ public:
 			// to 1x1
 			width = 1u << mip_levels, height = 1u << mip_levels;
 			lumRT.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+			lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
+			lumRT.mFlags = TEXTURE_CREATION_FLAG_FORCE_2D;
 			for (uint32_t i = 0; i < mip_levels; ++i)
 			{
 				lumRT.mWidth = width >> i;
