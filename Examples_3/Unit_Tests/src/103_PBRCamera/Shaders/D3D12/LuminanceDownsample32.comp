@@ -1,0 +1,27 @@
+#define GROUP_SIZE 32
+
+RWTexture2D<min16float> LuminanceMip5 : register(u0); //16x16
+Texture2D<min16float> LuminanceMip0 : register(t0); //512x512
+
+groupshared min16float sLuminances[GROUP_SIZE * GROUP_SIZE];
+
+[numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID)
+{
+	uint3 xyz = uint3(DTid.xy, 0u);
+	uint Tid = xyz.x + xyz.y * GROUP_SIZE;
+	sLuminances[Tid] = LuminanceMip0.Load(xyz).x;
+	
+	GroupMemoryBarrierWithGroupSync();
+	
+	for (uint t = 1u; t < GROUP_SIZE; t <<= 1u)
+	{
+		if (0 == Tid % (t << 1u))
+		{
+			sLuminances[Tid] = sLuminances[Tid + t] / min16float(1024.0h);
+		}
+		GroupMemoryBarrierWithGroupSync();
+	}
+	if (0u == Tid)
+		LuminanceMip5[groupID.xy] = sLuminances[0];
+}
