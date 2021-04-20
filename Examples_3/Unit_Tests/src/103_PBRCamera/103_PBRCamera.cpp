@@ -439,6 +439,7 @@ DescriptorSet* pLuminanceDescriptorCompute32[1] = { nullptr };
 
 
 #define LUMINANCE_COPY_COMPUTE 0
+#define SKIP_HALF 1
 Shader* pLuminanceCopyShaderCompute = nullptr;
 Pipeline* pLuminanceCopyPipelineCompute = nullptr;
 RootSignature* pLuminanceCopyRootSigCompute = nullptr;
@@ -2053,7 +2054,7 @@ public:
 				cmdDraw(cmd, 3, 0);
 #endif
 			}
-			
+#if SKIP_HALF
 			RenderTarget* pSource = pLuminanceBufferMips[1];
 			RenderTarget* pDestination = pLuminanceBufferMips[6];
 			rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
@@ -2069,6 +2070,11 @@ public:
 			rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
 
 			for (uint32_t i = 6; i < pLuminanceBufferMipsCount - 1; ++i)
+#else
+			rtBarriers[0] = { pLuminanceBufferMips[1], RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+			for (uint32_t i = 1; i < pLuminanceBufferMipsCount - 1; ++i)
+
+#endif
 			{
 				RenderTarget* pSource = pLuminanceBufferMips[i];
 				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];

@@ -16,10 +16,14 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID)
 	
 	for (uint t = 1u; t < GROUP_SIZE; t <<= 1u)
 	{
+#if 1
+		uint index = Tid * (t << 1u);
+		if (index < GROUP_SIZE)
+			sLuminances[index] = sLuminances[index + t] / min16float(1024.0h);
+#else
 		if (0 == Tid % (t << 1u))
-		{
 			sLuminances[Tid] = sLuminances[Tid + t] / min16float(1024.0h);
-		}
+#endif
 		GroupMemoryBarrierWithGroupSync();
 	}
 	if (0u == Tid)
