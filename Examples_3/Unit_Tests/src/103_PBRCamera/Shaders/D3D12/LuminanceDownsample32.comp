@@ -1,23 +1,40 @@
-#define REVISIION 3
-#define GROUP_SIZE 32u
-#define GROUP_LENGTH GROUP_SIZE * GROUP_SIZE
-#define GROUP_SIZE_HALF GROUP_SIZE >> 1u
+#define REVISIION 4
+#if 3 < REVISIION
+	#define GROUP_SIZE_X 16u
+	#define GROUP_SIZE_Y 16u
+#else
+	#define GROUP_SIZE_X 32u
+	#define GROUP_SIZE_Y 32u
+#endif
+#define GROUP_LENGTH GROUP_SIZE_X * GROUP_SIZE_Y
+#define GROUP_LENGTH_HALF GROUP_LENGTH >> 1u
 
 RWTexture2D<min16float> LuminanceMip5 : register(u0); //16x16
 Texture2D<min16float> LuminanceMip0 : register(t0); //512x512
 
-groupshared min16float sLuminances[GROUP_LENGTH];
+#if 3 < REVISIION
+	groupshared min16float4 sLuminances[GROUP_LENGTH];
+#else
+	groupshared min16float sLuminances[GROUP_LENGTH];
+#endif
 
-[numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
 void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 threadID : SV_GroupThreadID)
 {
-	uint3 xyz = uint3(DTid.xy, 0u);
-	uint Tid = threadID.x + threadID.y * GROUP_SIZE;
-	sLuminances[Tid] = LuminanceMip0.Load(xyz).x * min16float(0.0009765625h);
+	uint Tid = threadID.x + threadID.y * GROUP_SIZE_X;
+#if 3 < REVISIION
+	uint3 xyz = uint3(DTid.xy << 1u, 0u);
+	sLuminances[Tid].x = LuminanceMip0.Load(xyz, int2(0, 0)).x/* * min16float(0.0009765625h)*/;
+	sLuminances[Tid].y = LuminanceMip0.Load(xyz, int2(0, 1)).x/* * min16float(0.0009765625h)*/;
+	sLuminances[Tid].z = LuminanceMip0.Load(xyz, int2(1, 0)).x/* * min16float(0.0009765625h)*/;
+	sLuminances[Tid].w = LuminanceMip0.Load(xyz, int2(1, 1)).x/* * min16float(0.0009765625h)*/;
+#else
+	sLuminances[Tid] = LuminanceMip0.Load(uint3(DTid.xy, 0)).x * min16float(0.0009765625h);
+#endif
 	
 	GroupMemoryBarrierWithGroupSync();
-#if REVISIION == 3
-	for (uint t = GROUP_SIZE_HALF; 0u < t; t >>= 1u)
+#if 2 < REVISIION
+	for (uint t = GROUP_LENGTH_HALF; 0u < t; t >>= 1u)
 	{
 		if (Tid < t)
 			sLuminances[Tid] += sLuminances[Tid + t];
@@ -27,7 +44,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 th
 #else
 	for (uint t = 1u; t < GROUP_LENGTH; t <<= 1u)
 	{
-#if REVISIION == 2
+#if 1 < REVISIION
 		uint index = Tid * (t << 1u);
 		if (index < GROUP_LENGTH)
 			sLuminances[index] += sLuminances[index + t];
@@ -40,5 +57,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 th
 #endif
 
 	if (0u == Tid)
+#if 3 < REVISIION
+		LuminanceMip5[groupID.xy] = dot(sLuminances[0], float4(0.0009765625h, 0.0009765625h, 0.0009765625h, 0.0009765625h));
+#else
 		LuminanceMip5[groupID.xy] = sLuminances[0];
+#endif		
 }
