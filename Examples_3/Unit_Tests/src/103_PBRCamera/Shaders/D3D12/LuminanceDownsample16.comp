@@ -1,0 +1,33 @@
+#define GROUP_SIZE_X 8u
+#define GROUP_SIZE_Y 8u
+
+#define GROUP_LENGTH GROUP_SIZE_X * GROUP_SIZE_Y
+#define GROUP_LENGTH_HALF GROUP_LENGTH >> 1u
+
+RWTexture2D<min16float> LuminanceMipThis : register(u0); //1x1
+Texture2D<min16float> LuminanceMipPrev : register(t0); //16x16
+
+groupshared min16float4 sLuminances[GROUP_LENGTH];
+
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 threadID : SV_GroupThreadID)
+{
+	uint Tid = threadID.x + threadID.y * GROUP_SIZE_X;
+	uint3 xyz = uint3(DTid.xy << 1u, 0u);
+	sLuminances[Tid].x = LuminanceMipPrev.Load(xyz, int2(0, 0)).x;
+	sLuminances[Tid].y = LuminanceMipPrev.Load(xyz, int2(0, 1)).x;
+	sLuminances[Tid].z = LuminanceMipPrev.Load(xyz, int2(1, 0)).x;
+	sLuminances[Tid].w = LuminanceMipPrev.Load(xyz, int2(1, 1)).x;
+	
+	GroupMemoryBarrierWithGroupSync();
+	[unroll]
+	for (uint t = GROUP_LENGTH_HALF; 0u < t; t >>= 1u)
+	{
+		sLuminances[Tid] += sLuminances[Tid + t];
+		
+		GroupMemoryBarrierWithGroupSync();
+	}
+
+	if (0u == Tid)
+		LuminanceMipThis[groupID.xy] = dot(sLuminances[0], min16float4(0.00390625h, 0.00390625h, 0.00390625h, 0.00390625h));
+}

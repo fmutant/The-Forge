@@ -9,8 +9,8 @@
 #define GROUP_LENGTH GROUP_SIZE_X * GROUP_SIZE_Y
 #define GROUP_LENGTH_HALF GROUP_LENGTH >> 1u
 
-RWTexture2D<min16float> LuminanceMip5 : register(u0); //16x16
-Texture2D<min16float> LuminanceMip0 : register(t0); //512x512
+RWTexture2D<min16float> LuminanceMipThis : register(u0); //1x1
+Texture2D<min16float> LuminanceMipPrev : register(t0); //16x16
 
 #if 3 < REVISIION
 	groupshared min16float4 sLuminances[GROUP_LENGTH];
@@ -24,12 +24,12 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 th
 	uint Tid = threadID.x + threadID.y * GROUP_SIZE_X;
 #if 3 < REVISIION
 	uint3 xyz = uint3(DTid.xy << 1u, 0u);
-	sLuminances[Tid].x = LuminanceMip0.Load(xyz, int2(0, 0)).x/* * min16float(0.0009765625h)*/;
-	sLuminances[Tid].y = LuminanceMip0.Load(xyz, int2(0, 1)).x/* * min16float(0.0009765625h)*/;
-	sLuminances[Tid].z = LuminanceMip0.Load(xyz, int2(1, 0)).x/* * min16float(0.0009765625h)*/;
-	sLuminances[Tid].w = LuminanceMip0.Load(xyz, int2(1, 1)).x/* * min16float(0.0009765625h)*/;
+	sLuminances[Tid].x = LuminanceMipPrev.Load(xyz, int2(0, 0)).x;
+	sLuminances[Tid].y = LuminanceMipPrev.Load(xyz, int2(0, 1)).x;
+	sLuminances[Tid].z = LuminanceMipPrev.Load(xyz, int2(1, 0)).x;
+	sLuminances[Tid].w = LuminanceMipPrev.Load(xyz, int2(1, 1)).x;
 #else
-	sLuminances[Tid] = LuminanceMip0.Load(uint3(DTid.xy, 0)).x * min16float(0.0009765625h);
+	sLuminances[Tid] = LuminanceMipPrev.Load(uint3(DTid.xy, 0)).x * min16float(0.0009765625h);
 #endif
 	
 	GroupMemoryBarrierWithGroupSync();
@@ -58,8 +58,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 th
 
 	if (0u == Tid)
 #if 3 < REVISIION
-		LuminanceMip5[groupID.xy] = dot(sLuminances[0], float4(0.0009765625h, 0.0009765625h, 0.0009765625h, 0.0009765625h));
+		LuminanceMipThis[groupID.xy] = dot(sLuminances[0], min16float4(0.0009765625h, 0.0009765625h, 0.0009765625h, 0.0009765625h));
 #else
-		LuminanceMip5[groupID.xy] = sLuminances[0];
+		LuminanceMipThis[groupID.xy] = sLuminances[0];
 #endif		
 }

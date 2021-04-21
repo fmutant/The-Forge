@@ -1,14 +1,13 @@
-RWTexture2D<min16float> LuminanceMip0 : register(u0);
-
-Texture2D<min16float> LuminanceTexture : register(t0);
+RWTexture2D<min16float> LuminanceMipThis : register(u0);
+Texture2D<min16float> LuminanceMipPrev : register(t0);
 
 [numthreads(32, 32, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
 	float2 size_src;
-	LuminanceTexture.GetDimensions(size_src.x, size_src.y);
+	LuminanceMipPrev.GetDimensions(size_src.x, size_src.y);
 	float2 size_dst;
-	LuminanceMip0.GetDimensions(size_dst.x, size_dst.y);
+	LuminanceMipThis.GetDimensions(size_dst.x, size_dst.y);
 	uint2 ratio = size_src / size_dst + float2(0.5f, 0.5f);
 	
 	uint2 xy = DTid.xy * ratio;
@@ -20,10 +19,10 @@ void main(uint3 DTid : SV_DispatchThreadID)
 		[loop]
 		for (uint j = 0, je = ratio.y; j < je; ++j)
 		{
-			result += LuminanceTexture.Load(uint3(xy + uint2(i, j), 0));
+			result += LuminanceMipPrev.Load(uint3(xy + uint2(i, j), 0));
 			samples_count += 1.0f;
 		}
 	}
 	
-	LuminanceMip0[DTid.xy] = result / samples_count;
+	LuminanceMipThis[DTid.xy] = result / samples_count;
 }

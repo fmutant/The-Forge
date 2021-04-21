@@ -1,4 +1,4 @@
-Texture2D<min16float> LuminancePrevMip : register(t0, UPDATE_FREQ_PER_DRAW);
+Texture2D<min16float> LuminanceMipPrev : register(t0, UPDATE_FREQ_PER_DRAW);
 
 SamplerState bilinearClampSampler : register(s0, UPDATE_FREQ_NONE);
 
@@ -9,5 +9,5 @@ struct VSOutput {
 
 min16float main(VSOutput input) : SV_TARGET
 {
-	return LuminancePrevMip.Sample(bilinearClampSampler, input.texcoord);
+	return LuminanceMipPrev.Sample(bilinearClampSampler, input.texcoord);
 }

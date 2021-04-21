@@ -375,6 +375,7 @@ const uint32_t gImageCount = 3;
 ProfileToken   gGpuProfileToken;
 bool           gToggleVSync = false;
 bool gRunDownsampleOnCompute = false;
+bool gRunDownsampleOnCompute2Passes = false;
 
 Renderer* pRenderer = NULL;
 UIApp     gAppUI;
@@ -437,9 +438,13 @@ Pipeline* pLuminancePipelineCompute32 = nullptr;
 RootSignature* pLuminanceRootSigCompute32 = nullptr;
 DescriptorSet* pLuminanceDescriptorCompute32[1] = { nullptr };
 
+Shader* pLuminanceShaderCompute16 = nullptr;
+Pipeline* pLuminancePipelineCompute16 = nullptr;
+RootSignature* pLuminanceRootSigCompute16 = nullptr;
+DescriptorSet* pLuminanceDescriptorCompute16[1] = { nullptr };
+
 
 #define LUMINANCE_COPY_COMPUTE 0
-#define SKIP_HALF 1
 Shader* pLuminanceCopyShaderCompute = nullptr;
 Pipeline* pLuminanceCopyPipelineCompute = nullptr;
 RootSignature* pLuminanceCopyRootSigCompute = nullptr;
@@ -566,10 +571,10 @@ public:
 		fsSetPathForResourceDir(pSystemFileIO, RM_CONTENT, RD_MESHES, "Meshes");
 		fsSetPathForResourceDir(pSystemFileIO, RM_CONTENT, RD_FONTS, "Fonts");
 		fsSetPathForResourceDir(pSystemFileIO, RM_CONTENT, RD_SCRIPTS, "Scripts");
-
+		
 		RendererDesc settings = { 0 };
-		settings.mShaderTarget = ShaderTarget::shader_target_5_1;
-		settings.mDxFeatureLevel = D3D_FEATURE_LEVEL::D3D_FEATURE_LEVEL_12_0;
+		settings.mShaderTarget = ShaderTarget::shader_target_6_2;
+		settings.mDxFeatureLevel = D3D_FEATURE_LEVEL::D3D_FEATURE_LEVEL_12_1;
 		settings.mGpuMode = GpuMode::GPU_MODE_SINGLE;
 		settings.mApi = RendererApi::RENDERER_API_D3D12;
 		//settings.mEnableGPUBasedValidation = true;
@@ -731,6 +736,15 @@ public:
 			RootSignatureDesc luminanceRootDesc = { &pLuminanceShaderCompute32, 1 };
 			luminanceRootDesc.mStaticSamplerCount = 0;
 			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceRootSigCompute32);
+		}
+		{
+			ShaderLoadDesc LuminanceShaderDesc = {};
+			LuminanceShaderDesc.mStages[0] = { "LuminanceDownsample16.comp", nullptr, 0 };
+			addShader(pRenderer, &LuminanceShaderDesc, &pLuminanceShaderCompute16);
+
+			RootSignatureDesc luminanceRootDesc = { &pLuminanceShaderCompute16, 1 };
+			luminanceRootDesc.mStaticSamplerCount = 0;
+			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceRootSigCompute16);
 		}
 		{
 			ShaderLoadDesc LuminanceShaderDesc = {};
@@ -1007,6 +1021,7 @@ public:
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
 		pGui->AddWidget(OneLineCheckboxWidget("Compute downsample", &gRunDownsampleOnCompute, 0xFFFFFFFF));
+		pGui->AddWidget(OneLineCheckboxWidget("Compute downsample 2 passes", &gRunDownsampleOnCompute2Passes, 0xFFFFFFFF));
 		pGui->AddWidget(SliderFloatWidget("Aperture f-stops", &Exposure::gAperture, 1.0f, 22.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Shutter 1/s", &Exposure::gShutterTime, 1.0f, 250.0f, 10.0f));
 		pGui->AddWidget(SliderFloatWidget("ISO", &Exposure::gISO, 100.0f, 800.0f, 100.0f));
@@ -1162,6 +1177,7 @@ public:
 		removeDescriptorSet(pRenderer, pLuminanceDescriptor[0]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute32[0]);
+		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute16[0]);
 		removeDescriptorSet(pRenderer, pLuminanceCopyDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[1]);
@@ -1205,6 +1221,7 @@ public:
 		removeShader(pRenderer, pLuminanceShader);
 		removeShader(pRenderer, pLuminanceShaderCompute);
 		removeShader(pRenderer, pLuminanceShaderCompute32);
+		removeShader(pRenderer, pLuminanceShaderCompute16);
 		removeShader(pRenderer, pLuminanceCopyShaderCompute);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
@@ -1218,6 +1235,7 @@ public:
 		removeRootSignature(pRenderer, pLuminanceRootSig);
 		removeRootSignature(pRenderer, pLuminanceRootSigCompute);
 		removeRootSignature(pRenderer, pLuminanceRootSigCompute32);
+		removeRootSignature(pRenderer, pLuminanceRootSigCompute16);
 		removeRootSignature(pRenderer, pLuminanceCopyRootSigCompute);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
@@ -1731,7 +1749,7 @@ public:
 			DescriptorData pLuminanceParams[1] = {};
 			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1; ++i)
 			{
-				pLuminanceParams[0].pName = "LuminancePrevMip";
+				pLuminanceParams[0].pName = "LuminanceMipPrev";
 				pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[i]->pTexture;
 				updateDescriptorSet(pRenderer, i, pLuminanceDescriptor[0], 1, pLuminanceParams);
 			}
@@ -1761,9 +1779,9 @@ public:
 			DescriptorData pLuminanceParams[2] = {};
 			for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1u; ++i)
 			{
-				pLuminanceParams[0].pName = "LuminancePrevMip";
+				pLuminanceParams[0].pName = "LuminanceMipPrev";
 				pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[i]->pTexture;
-				pLuminanceParams[1].pName = "LuminanceCurMip";
+				pLuminanceParams[1].pName = "LuminanceMipThis";
 				pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[i + 1]->pTexture;
 				updateDescriptorSet(pRenderer, i, pLuminanceDescriptorCompute[0], 2, pLuminanceParams);
 			}
@@ -1781,14 +1799,11 @@ public:
 			addDescriptorSet(pRenderer, &setDesc, &pLuminanceDescriptorCompute32[0]);
 
 			DescriptorData pLuminanceParams[2] = {};
-			//for (uint32_t i = 0; i < pLuminanceBufferMipsCount - 1u; ++i)
-			{
-				pLuminanceParams[0].pName = "LuminanceMip0";
-				pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[1]->pTexture;
-				pLuminanceParams[1].pName = "LuminanceMip5";
-				pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[6]->pTexture;
-				updateDescriptorSet(pRenderer, 0, pLuminanceDescriptorCompute32[0], 2, pLuminanceParams);
-			}
+			pLuminanceParams[0].pName = "LuminanceMipPrev";
+			pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[1]->pTexture;
+			pLuminanceParams[1].pName = "LuminanceMipThis";
+			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[6]->pTexture;
+			updateDescriptorSet(pRenderer, 0, pLuminanceDescriptorCompute32[0], 2, pLuminanceParams);
 
 			PipelineDesc desc_compute = {};
 			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
@@ -1798,14 +1813,33 @@ public:
 			addPipeline(pRenderer, &desc_compute, &pLuminancePipelineCompute32);
 		}
 		{
+			//Luminance downsampling compute 16x16
+			DescriptorSetDesc setDesc = { pLuminanceRootSigCompute16, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pLuminanceDescriptorCompute16[0]);
+
+			DescriptorData pLuminanceParams[2] = {};
+			pLuminanceParams[0].pName = "LuminanceMipPrev";
+			pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[6]->pTexture;
+			pLuminanceParams[1].pName = "LuminanceMipThis";
+			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[pLuminanceBufferMipsCount - 1u]->pTexture;
+			updateDescriptorSet(pRenderer, 0, pLuminanceDescriptorCompute16[0], 2, pLuminanceParams);
+
+			PipelineDesc desc_compute = {};
+			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+			ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
+			pipelineSettings.pShaderProgram = pLuminanceShaderCompute16;
+			pipelineSettings.pRootSignature = pLuminanceRootSigCompute16;
+			addPipeline(pRenderer, &desc_compute, &pLuminancePipelineCompute16);
+		}
+		{
 			//Luminance copy compute
 			DescriptorSetDesc setDesc = { pLuminanceCopyRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1u };
 			addDescriptorSet(pRenderer, &setDesc, &pLuminanceCopyDescriptorCompute[0]);
 
 			DescriptorData pLuminanceParams[2] = {};
-			pLuminanceParams[0].pName = "LuminanceTexture";
+			pLuminanceParams[0].pName = "LuminanceMipPrev";
 			pLuminanceParams[0].ppTextures = &pLuminanceBufferMips[0]->pTexture;
-			pLuminanceParams[1].pName = "LuminanceMip0";
+			pLuminanceParams[1].pName = "LuminanceMipThis";
 			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[1]->pTexture;
 			updateDescriptorSet(pRenderer, 0, pLuminanceCopyDescriptorCompute[0], 2, pLuminanceParams);
 
@@ -1855,6 +1889,7 @@ public:
 		removePipeline(pRenderer, pLuminancePipeline);
 		removePipeline(pRenderer, pLuminancePipelineCompute);
 		removePipeline(pRenderer, pLuminancePipelineCompute32);
+		removePipeline(pRenderer, pLuminancePipelineCompute16);
 		removePipeline(pRenderer, pLuminanceCopyPipelineCompute);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
@@ -2054,40 +2089,55 @@ public:
 				cmdDraw(cmd, 3, 0);
 #endif
 			}
-#if SKIP_HALF
-			RenderTarget* pSource = pLuminanceBufferMips[1];
-			RenderTarget* pDestination = pLuminanceBufferMips[6];
-			rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-			rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
-			cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
-			
-			uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
-			uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
-
-			cmdBindPipeline(cmd, pLuminancePipelineCompute32);
-			cmdBindDescriptorSet(cmd, 0, pLuminanceDescriptorCompute32[0]);
-			cmdDispatch(cmd, width_dst, height_dst, 1);
-			rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
-
-			for (uint32_t i = 6; i < pLuminanceBufferMipsCount - 1; ++i)
-#else
-			rtBarriers[0] = { pLuminanceBufferMips[1], RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
-			for (uint32_t i = 1; i < pLuminanceBufferMipsCount - 1; ++i)
-
-#endif
+			if (gRunDownsampleOnCompute2Passes)
 			{
-				RenderTarget* pSource = pLuminanceBufferMips[i];
-				RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
-				rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
-				cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+				{
+					RenderTarget* pSource = pLuminanceBufferMips[1];
+					RenderTarget* pDestination = pLuminanceBufferMips[6];
+					rtBarriers[0] = { pSource, RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+					rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+					cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+			
+					uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
+					uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
 
-				uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
-				uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
+					cmdBindPipeline(cmd, pLuminancePipelineCompute32);
+					cmdBindDescriptorSet(cmd, 0, pLuminanceDescriptorCompute32[0]);
+					cmdDispatch(cmd, width_dst, height_dst, 1);
+				}
+				{
+					RenderTarget* pSource = pLuminanceBufferMips[6];
+					RenderTarget* pDestination = pLuminanceBufferMips[pLuminanceBufferMipsCount - 1];
+					rtBarriers[0] = { pSource, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+					rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+					cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
 
-				cmdBindPipeline(cmd, pLuminancePipelineCompute);
-				cmdBindDescriptorSet(cmd, i, pLuminanceDescriptorCompute[0]);
-				cmdDispatch(cmd, width_dst, height_dst, 1);
-				rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+					uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
+					uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
+
+					cmdBindPipeline(cmd, pLuminancePipelineCompute16);
+					cmdBindDescriptorSet(cmd, 0, pLuminanceDescriptorCompute16[0]);
+					cmdDispatch(cmd, width_dst, height_dst, 1);
+				}
+			}
+			else
+			{
+				rtBarriers[0] = { pLuminanceBufferMips[1], RESOURCE_STATE_RENDER_TARGET, RESOURCE_STATE_SHADER_RESOURCE };
+				for (uint32_t i = 1; i < pLuminanceBufferMipsCount - 1; ++i)
+				{
+					RenderTarget* pSource = pLuminanceBufferMips[i];
+					RenderTarget* pDestination = pLuminanceBufferMips[i + 1];
+					rtBarriers[1] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+					cmdResourceBarrier(cmd, 0, NULL, 0, NULL, 2, rtBarriers);
+
+					uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
+					uint32_t width_dst = pDestination->mWidth, height_dst = pDestination->mHeight;
+
+					cmdBindPipeline(cmd, pLuminancePipelineCompute);
+					cmdBindDescriptorSet(cmd, i, pLuminanceDescriptorCompute[0]);
+					cmdDispatch(cmd, width_dst, height_dst, 1);
+					rtBarriers[0] = { pDestination, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+				}
 			}
 		}
 		else
