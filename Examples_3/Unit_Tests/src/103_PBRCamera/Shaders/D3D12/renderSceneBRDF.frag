@@ -308,6 +308,6 @@ PSOutput main(VSOutput input) : SV_TARGET
 
     Out.Color = float4(color.r, color.g, color.b, 1.0f);
 	float luminance = dot(illuminance, float3(0.2125f, 0.7154f, 0.0721f));
-	Out.Luminance = log2(max(luminance, 1e-6f));
+	Out.Luminance = max(luminance, 1e-6f);
 	return Out;
 }

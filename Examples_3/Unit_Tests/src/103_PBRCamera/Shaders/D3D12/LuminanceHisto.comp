@@ -1,0 +1,14 @@
+RWByteAddressBuffer HistoGlobal : register(u0);
+Texture2D<min16float> LuminanceTexture : register(t0);
+
+[numthreads(16, 8, 1)]
+void main(uint3 tid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 threadID : SV_GroupThreadID, uint groupIdx : SV_GroupIndex)
+{
+	const min16float logLuminanceMin = min16float(-20.0h);
+	const min16float logLuminanceRange = min16float(1.0h / 32.0h);
+	min16float loglum = log2(LuminanceTexture.Load(uint3(tid.xy, 0)));
+	min16float luminance = saturate((loglum - logLuminanceMin) * logLuminanceRange);
+	uint bin = uint(luminance * min16float(127.0h) + min16float(1.0h));
+	uint prev_value = 0;
+	HistoGlobal.InterlockedAdd(bin, 1, prev_value);
+}

@@ -1,28 +1,15 @@
 RWTexture2D<min16float> LuminanceMipThis : register(u0);
 Texture2D<min16float> LuminanceMipPrev : register(t0);
 
+SamplerState bilinearClampSampler : register(s0);
+
 [numthreads(32, 32, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
-	float2 size_src;
-	LuminanceMipPrev.GetDimensions(size_src.x, size_src.y);
 	float2 size_dst;
 	LuminanceMipThis.GetDimensions(size_dst.x, size_dst.y);
-	uint2 ratio = size_src / size_dst + float2(0.5f, 0.5f);
-	
-	uint2 xy = DTid.xy * ratio;
-	min16float samples_count = 0.0f;
-	min16float result = 0.0f;
-	[loop]
-	for (uint i = 0, ie = ratio.x; i < ie; ++i)
-	{
-		[loop]
-		for (uint j = 0, je = ratio.y; j < je; ++j)
-		{
-			result += LuminanceMipPrev.Load(uint3(xy + uint2(i, j), 0));
-			samples_count += 1.0f;
-		}
-	}
-	
-	LuminanceMipThis[DTid.xy] = result / samples_count;
+	float2 uv = float2(DTid.xy) / size_dst;
+	if (any(float2(1.0f, 1.0f) < uv)) return;
+
+	LuminanceMipThis[DTid.xy] = log2(LuminanceMipPrev.SampleLevel(bilinearClampSampler, uv, 0));
 }
