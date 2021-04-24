@@ -24,7 +24,3 @@ void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 grou
 
 	HistoGlobal.InterlockedAdd(gidx << 2u, asuint(HistoLocal[gidx]));
 }
-
-// deviceMB -> groupMBsync -> groupMBsync - above 0.14ms
-// allMBsync -> groupMBsync - below 0.14ms
-// groupMBsync -> allMBsync - above 0.14ms
