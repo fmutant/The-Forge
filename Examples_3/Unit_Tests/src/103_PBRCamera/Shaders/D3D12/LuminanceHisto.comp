@@ -1,14 +1,30 @@
 RWByteAddressBuffer HistoGlobal : register(u0);
 Texture2D<min16float> LuminanceTexture : register(t0);
 
+groupshared uint HistoLocal[128];
+
 [numthreads(16, 8, 1)]
-void main(uint3 tid : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 threadID : SV_GroupThreadID, uint groupIdx : SV_GroupIndex)
+void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 groupID : SV_GroupID)
 {
+	if (0 == groupID.x && 0 == groupID.y)
+		HistoGlobal.Store(gidx << 2u, asuint(0u));
+
+	HistoLocal[gidx] = 0;
+	GroupMemoryBarrierWithGroupSync();
+
 	const min16float logLuminanceMin = min16float(-20.0h);
 	const min16float logLuminanceRange = min16float(1.0h / 32.0h);
-	min16float loglum = log2(LuminanceTexture.Load(uint3(tid.xy, 0)));
-	min16float luminance = saturate((loglum - logLuminanceMin) * logLuminanceRange);
-	uint bin = uint(luminance * min16float(127.0h) + min16float(1.0h));
-	uint prev_value = 0;
-	HistoGlobal.InterlockedAdd(bin, 1, prev_value);
+	min16float loglum = LuminanceTexture.Load(uint3(tid.xy, 0));
+	min16float luminance_normalize = saturate((loglum - logLuminanceMin) * logLuminanceRange);
+	uint bin = uint(luminance_normalize * min16float(127.0h) + min16float(1.0h));
+
+	InterlockedAdd(HistoLocal[bin], asuint(1u));
+
+	GroupMemoryBarrierWithGroupSync();
+
+	HistoGlobal.InterlockedAdd(gidx << 2u, asuint(HistoLocal[gidx]));
 }
+
+// deviceMB -> groupMBsync -> groupMBsync - above 0.14ms
+// allMBsync -> groupMBsync - below 0.14ms
+// groupMBsync -> allMBsync - above 0.14ms

@@ -1921,7 +1921,7 @@ public:
 			pLuminanceParams[0].pName = "HistoGlobal";
 			pLuminanceParams[0].ppBuffers = &pLuminanceHisto;
 			pLuminanceParams[1].pName = "LuminanceTexture";
-			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[0]->pTexture;
+			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[1]->pTexture;
 			updateDescriptorSet(pRenderer, 0, pLuminanceHistoDescriptorCompute[0], 2, pLuminanceParams);
 
 			PipelineDesc desc_compute = {};
@@ -2300,10 +2300,10 @@ public:
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Luminance histo");
 		{
 			BufferBarrier buffBarriers[2] = {};
-			RenderTarget* pSource = pLuminanceBufferMips[0];
+			RenderTarget* pSource = pLuminanceBufferMips[1];
 			Buffer* pDestination = pLuminanceHisto;
-			buffBarriers[0] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
-			cmdResourceBarrier(cmd, 1, buffBarriers, 0, nullptr, 0, nullptr);
+			//buffBarriers[0] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+			//cmdResourceBarrier(cmd, 1, buffBarriers, 0, nullptr, 0, nullptr);
 
 			uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
 
@@ -2312,7 +2312,7 @@ public:
 			cmdDispatch(cmd, width_src >> 4u, height_src >> 3u, 1);
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
-
+		
 		//Clear G-buffers and Depth buffer
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 		{
@@ -2944,19 +2944,19 @@ public:
 
 		return nullptr != pLuminanceBuffer;
 	}
-
+	
 	bool addLuminanceHistoBuffer()
 	{
 		constexpr uint32_t histo_size = 128u;
 		pLuminanceHistoValues.assign(histo_size, 0);
 
 		BufferLoadDesc bufferDesc = {};
-		bufferDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_BUFFER | DESCRIPTOR_TYPE_RW_BUFFER;
+		bufferDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_BUFFER_RAW | DESCRIPTOR_TYPE_RW_BUFFER_RAW;
 		bufferDesc.mDesc.mElementCount = histo_size;
 		bufferDesc.mDesc.mStructStride = sizeof(uint32_t);
 		bufferDesc.mDesc.mSize = bufferDesc.mDesc.mElementCount * bufferDesc.mDesc.mStructStride;
 		bufferDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_ONLY;
-		bufferDesc.mDesc.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		bufferDesc.mDesc.mStartState = RESOURCE_STATE_UNORDERED_ACCESS;
 		bufferDesc.mDesc.mFormat = TinyImageFormat_R32_UINT;
 
 		bufferDesc.pData = pLuminanceHistoValues.data();
