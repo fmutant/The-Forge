@@ -1,0 +1,41 @@
+RWByteAddressBuffer HistoGlobal : register(u0);
+RWTexture2D<min16float> LuminanceMean : register(u1);
+
+static const uint GROUP_DIM_X = 32u;
+static const uint GROUP_LENGTH = GROUP_DIM_X;
+static const uint GROUP_LENGTH_HALF = GROUP_LENGTH >> 1u;
+static const float TEXTURE_SIZE_X = 512.0f;
+static const float TEXTURE_SIZE_Y = 512.0f;
+static const float TEXTURE_LENGTH = TEXTURE_SIZE_X * TEXTURE_SIZE_Y;
+static const float logLuminanceMin = -20.0f;
+static const float logLuminanceRange = 32.0f;
+static const float logLuminanceRangeInv = 1.0f / logLuminanceRange;
+
+groupshared float4 LuminancesLocal[GROUP_LENGTH];
+
+[numthreads(GROUP_DIM_X, 1, 1)]
+void main(uint gidx : SV_GroupIndex)
+{
+	float4 muls = float4(gidx, gidx, gidx, gidx) * float4(4.0f, 4.0f, 4.0f, 4.0f) + float4(0.0f, 1.0f, 2.0f, 3.0f);
+	float4 binsValues = float4(HistoGlobal.Load4(gidx << 4u));
+	LuminancesLocal[gidx] = binsValues * muls;
+	GroupMemoryBarrierWithGroupSync();
+
+	[unroll]
+	for (uint t = GROUP_LENGTH_HALF; 0u < t; t >>= 1u)
+	{
+		LuminancesLocal[gidx] += LuminancesLocal[gidx + t];
+	
+		GroupMemoryBarrierWithGroupSync();
+	}
+	
+	if (0 == gidx)
+	{
+		float luminance = dot(LuminancesLocal[0u], float4(1.0f, 1.0f, 1.0f, 1.0f));
+		float weightedLogAverage = luminance / max(TEXTURE_LENGTH - binsValues.x, 1.0f) - 1.0f;
+		float weightedAverageLuminance = exp2((weightedLogAverage / 127.0f) * logLuminanceRange) + logLuminanceMin;
+		float luminancePrev = LuminanceMean[uint2(0u, 0u)];
+		float adaptedLuminance = luminancePrev + (weightedLogAverage - luminancePrev) * (1.0f - exp(1.1f * -0.33f));
+		LuminanceMean[uint2(0u, 0u)] = adaptedLuminance;
+	}
+}

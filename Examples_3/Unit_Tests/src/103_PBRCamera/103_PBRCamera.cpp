@@ -397,6 +397,8 @@ uint32_t pLuminanceBufferMipsCount = 0;
 Buffer* pLuminanceReadback[gImageCount] = {};
 Buffer* pLuminanceHisto = nullptr;
 eastl::vector<uint32_t> pLuminanceHistoValues;
+RenderTarget* pLuminanceMean = nullptr;
+Buffer* pLuminanceMeanReadback[gImageCount] = {};
 
 Fence*        pRenderCompleteFences[gImageCount] = { NULL };
 Semaphore*    pImageAcquiredSemaphore = NULL;
@@ -450,6 +452,10 @@ Pipeline* pLuminanceHistoPipelineCompute = nullptr;
 RootSignature* pLuminanceHistoRootSigCompute = nullptr;
 DescriptorSet* pLuminanceHistoDescriptorCompute[1] = { nullptr };
 
+Shader* pLuminanceMeanShaderCompute = nullptr;
+Pipeline* pLuminanceMeanPipelineCompute = nullptr;
+RootSignature* pLuminanceMeanRootSigCompute = nullptr;
+DescriptorSet* pLuminanceMeanDescriptorCompute[1] = { nullptr };
 
 #define LUMINANCE_COPY_COMPUTE 1
 Shader* pLuminanceCopyShader = nullptr;
@@ -782,6 +788,15 @@ public:
 			RootSignatureDesc luminanceRootDesc = { &pLuminanceHistoShaderCompute, 1 };
 			luminanceRootDesc.mStaticSamplerCount = 0;
 			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceHistoRootSigCompute);
+		}
+		{
+			ShaderLoadDesc LuminanceShaderDesc = {};
+			LuminanceShaderDesc.mStages[0] = { "LuminanceMean.comp", nullptr, 0 };
+			addShader(pRenderer, &LuminanceShaderDesc, &pLuminanceMeanShaderCompute);
+
+			RootSignatureDesc luminanceRootDesc = { &pLuminanceMeanShaderCompute, 1 };
+			luminanceRootDesc.mStaticSamplerCount = 0;
+			addRootSignature(pRenderer, &luminanceRootDesc, &pLuminanceMeanRootSigCompute);
 		}
 		{
 			ShaderLoadDesc LuminanceShaderDesc = {};
@@ -1222,10 +1237,11 @@ public:
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute32[0]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute16[0]);
 		removeDescriptorSet(pRenderer, pLuminanceHistoDescriptorCompute[0]);
+		removeDescriptorSet(pRenderer, pLuminanceMeanDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pLuminanceCopyDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[1]);
-
+		
 		for (uint32_t i = 0; i < gImageCount; ++i)
 		{
 			removeFence(pRenderer, pRenderCompleteFences[i]);
@@ -1268,6 +1284,7 @@ public:
 		removeShader(pRenderer, pLuminanceShaderCompute32);
 		removeShader(pRenderer, pLuminanceShaderCompute16);
 		removeShader(pRenderer, pLuminanceHistoShaderCompute);
+		removeShader(pRenderer, pLuminanceMeanShaderCompute);
 		removeShader(pRenderer, pLuminanceCopyShaderCompute);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
@@ -1284,6 +1301,7 @@ public:
 		removeRootSignature(pRenderer, pLuminanceRootSigCompute32);
 		removeRootSignature(pRenderer, pLuminanceRootSigCompute16);
 		removeRootSignature(pRenderer, pLuminanceHistoRootSigCompute);
+		removeRootSignature(pRenderer, pLuminanceMeanRootSigCompute);
 		removeRootSignature(pRenderer, pLuminanceCopyRootSigCompute);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
@@ -1932,6 +1950,25 @@ public:
 			addPipeline(pRenderer, &desc_compute, &pLuminanceHistoPipelineCompute);
 		}
 		{
+			//Luminance mean compute
+			DescriptorSetDesc setDesc = { pLuminanceMeanRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pLuminanceMeanDescriptorCompute[0]);
+
+			DescriptorData pLuminanceParams[2] = {};
+			pLuminanceParams[0].pName = "HistoGlobal";
+			pLuminanceParams[0].ppBuffers = &pLuminanceHisto;
+			pLuminanceParams[1].pName = "LuminanceMean";
+			pLuminanceParams[1].ppTextures = &pLuminanceMean->pTexture;
+			updateDescriptorSet(pRenderer, 0, pLuminanceMeanDescriptorCompute[0], 2, pLuminanceParams);
+
+			PipelineDesc desc_compute = {};
+			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+			ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
+			pipelineSettings.pShaderProgram = pLuminanceMeanShaderCompute;
+			pipelineSettings.pRootSignature = pLuminanceMeanRootSigCompute;
+			addPipeline(pRenderer, &desc_compute, &pLuminanceMeanPipelineCompute);
+		}
+		{
 			//Luminance copy compute
 			DescriptorSetDesc setDesc = { pLuminanceCopyRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1u };
 			addDescriptorSet(pRenderer, &setDesc, &pLuminanceCopyDescriptorCompute[0]);
@@ -1992,6 +2029,7 @@ public:
 		removePipeline(pRenderer, pLuminancePipelineCompute32);
 		removePipeline(pRenderer, pLuminancePipelineCompute16);
 		removePipeline(pRenderer, pLuminanceHistoPipelineCompute);
+		removePipeline(pRenderer, pLuminanceMeanPipelineCompute);
 		removePipeline(pRenderer, pLuminanceCopyPipelineCompute);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
@@ -2004,9 +2042,13 @@ public:
 		}
 		extern void removeBuffer(Renderer* pRenderer, Buffer* pBuffer);
 		for (uint32_t i = 0; i < gImageCount; ++i)
+		{
 			removeBuffer(pRenderer, pLuminanceReadback[i]);
+			removeBuffer(pRenderer, pLuminanceMeanReadback[i]);
+		}
 		removeResource(pLuminanceHisto);
 		pLuminanceHistoValues.set_capacity(0);
+		removeRenderTarget(pRenderer, pLuminanceMean);
 
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
 			removeRenderTarget(pRenderer, pRenderTargetDeferredPass[0][i]);
@@ -2302,14 +2344,24 @@ public:
 			BufferBarrier buffBarriers[2] = {};
 			RenderTarget* pSource = pLuminanceBufferMips[1];
 			Buffer* pDestination = pLuminanceHisto;
-			//buffBarriers[0] = { pDestination, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
-			//cmdResourceBarrier(cmd, 1, buffBarriers, 0, nullptr, 0, nullptr);
 
 			uint32_t width_src = pSource->mWidth, height_src = pSource->mHeight;
 
 			cmdBindPipeline(cmd, pLuminanceHistoPipelineCompute);
 			cmdBindDescriptorSet(cmd, 0, pLuminanceHistoDescriptorCompute[0]);
 			cmdDispatch(cmd, width_src >> 4u, height_src >> 3u, 1);
+		}
+		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+
+		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Luminance mean");
+		{
+			BufferBarrier buffBarriers[1] = {};
+			buffBarriers[0] = { pLuminanceHisto, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+			cmdResourceBarrier(cmd, 1, buffBarriers, 0, NULL, 0, nullptr);
+
+			cmdBindPipeline(cmd, pLuminanceMeanPipelineCompute);
+			cmdBindDescriptorSet(cmd, 0, pLuminanceMeanDescriptorCompute[0]);
+			cmdDispatch(cmd, 1, 1, 1);
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 		
@@ -2949,21 +3001,61 @@ public:
 	{
 		constexpr uint32_t histo_size = 128u;
 		pLuminanceHistoValues.assign(histo_size, 0);
+		{
+			BufferLoadDesc bufferDesc = {};
+			bufferDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_BUFFER_RAW | DESCRIPTOR_TYPE_RW_BUFFER_RAW;
+			bufferDesc.mDesc.mElementCount = histo_size;
+			bufferDesc.mDesc.mStructStride = sizeof(uint32_t);
+			bufferDesc.mDesc.mSize = bufferDesc.mDesc.mElementCount * bufferDesc.mDesc.mStructStride;
+			bufferDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_ONLY;
+			bufferDesc.mDesc.mStartState = RESOURCE_STATE_UNORDERED_ACCESS;
+			bufferDesc.mDesc.mFormat = TinyImageFormat_R32_UINT;
 
-		BufferLoadDesc bufferDesc = {};
-		bufferDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_BUFFER_RAW | DESCRIPTOR_TYPE_RW_BUFFER_RAW;
-		bufferDesc.mDesc.mElementCount = histo_size;
-		bufferDesc.mDesc.mStructStride = sizeof(uint32_t);
-		bufferDesc.mDesc.mSize = bufferDesc.mDesc.mElementCount * bufferDesc.mDesc.mStructStride;
-		bufferDesc.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_ONLY;
-		bufferDesc.mDesc.mStartState = RESOURCE_STATE_UNORDERED_ACCESS;
-		bufferDesc.mDesc.mFormat = TinyImageFormat_R32_UINT;
+			bufferDesc.pData = nullptr;
+			bufferDesc.ppBuffer = &pLuminanceHisto;
+			addResource(&bufferDesc, nullptr);
+		}
+		{
+			uint32_t width = 1u, height = 1u;
+			RenderTargetDesc lumRT = {};
+			lumRT.mFormat = TinyImageFormat_R16_SFLOAT;
+			lumRT.mMipLevels = 1;
+			lumRT.mDepth = 1;
+			lumRT.mArraySize = 1;
+			lumRT.mClearValue = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+			lumRT.mSampleCount = SAMPLE_COUNT_1;
+			lumRT.mSampleQuality = 0;
+			lumRT.mStartState = RESOURCE_STATE_UNORDERED_ACCESS;
+			lumRT.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
+			lumRT.mFlags = TEXTURE_CREATION_FLAG_FORCE_2D;
+			lumRT.pName = "LuminanceMean";
+			lumRT.mWidth = width;
+			lumRT.mHeight = height;
+			addRenderTarget(pRenderer, &lumRT, &pLuminanceMean);
 
-		bufferDesc.pData = pLuminanceHistoValues.data();
-		bufferDesc.ppBuffer = &pLuminanceHisto;
-		addResource(&bufferDesc, nullptr);
+			D3D12_RESOURCE_DESC resourceDesc = pLuminanceMean->pTexture->pDxResource->GetDesc();
+			uint64_t padded_size = 0;
+			uint64_t row_size = 0;
+			uint32_t num_rows = 0;
+			D3D12_PLACED_SUBRESOURCE_FOOTPRINT imageLayout = {};
+			pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &imageLayout, &num_rows, &row_size, &padded_size);
 
-		return nullptr != pLuminanceHisto;
+			uint16_t formatByteWidth = TinyImageFormat_BitSizeOfBlock(pLuminanceMean->mFormat) / 8;
+			BufferDesc bufferDesc = {};
+			bufferDesc.mDescriptors = DESCRIPTOR_TYPE_BUFFER;
+			bufferDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_GPU_TO_CPU;
+			bufferDesc.mSize = padded_size;
+			bufferDesc.mFlags = BUFFER_CREATION_FLAG_NO_DESCRIPTOR_VIEW_CREATION | BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
+			bufferDesc.mStartState = RESOURCE_STATE_COPY_DEST;
+			bufferDesc.mFormat = pLuminanceMean->mFormat;
+
+			extern void addBuffer(Renderer* pRenderer, const BufferDesc* pDesc, Buffer** ppBuffer);
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				addBuffer(pRenderer, &bufferDesc, &pLuminanceMeanReadback[i]);
+			}
+		}
+		return nullptr != pLuminanceHisto && nullptr != pLuminanceMean;
 	}
 };
 

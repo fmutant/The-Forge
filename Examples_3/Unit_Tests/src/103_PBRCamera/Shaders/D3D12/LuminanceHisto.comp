@@ -13,9 +13,10 @@ void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 grou
 	GroupMemoryBarrierWithGroupSync();
 
 	const min16float logLuminanceMin = min16float(-20.0h);
-	const min16float logLuminanceRange = min16float(1.0h / 32.0h);
+	const min16float logLuminanceRange = min16float(32.0h);
+	const min16float logLuminanceRangeInv = min16float(1.0h / logLuminanceRange);
 	min16float loglum = LuminanceTexture.Load(uint3(tid.xy, 0));
-	min16float luminance_normalize = saturate((loglum - logLuminanceMin) * logLuminanceRange);
+	min16float luminance_normalize = saturate((loglum - logLuminanceMin) * logLuminanceRangeInv);
 	uint bin = uint(luminance_normalize * min16float(127.0h) + min16float(1.0h));
 
 	InterlockedAdd(HistoLocal[bin], asuint(1u));
