@@ -35,7 +35,7 @@ cbuffer cbExposure : register(b0, UPDATE_FREQ_PER_FRAME)
 	float pad0;
 	
 	float EVaverage;
-	float EVauto;
+	float EVmean;
 	float pad1;
 	uint EVmode;
 }
@@ -63,7 +63,8 @@ float4 main(VSOutput input) : SV_TARGET
 	{
 		case 0: EVtarget = EVmanualSBS; break;
 		case 1: EVtarget = EVmanualSOS; break;
-		case 2: EVtarget = exp(EVaverage); break;
+		case 2: EVtarget = EVaverage; break;
+		case 3: EVtarget = EVmean; break;
 		default: EVtarget = 1.0f; break;
 	};
 	

@@ -78,11 +78,15 @@ inline float half2float(uint16_t value)
 
 namespace Exposure
 {
+	constexpr float gLuminanceRange = 32.0f;
+	constexpr float gLuminanceRangeInv = 1.0f / gLuminanceRange;
+
 	f32 gAperture; //N
 	f32 gShutterTime; //t
 	f32 gISO; //S
 	f32 gExposureComp;
 	f32 gLuminanceAvg;
+	f32 gLuminanceMean;
 	uint gEVmode{ 0 };
 
 	f32 gEV100;
@@ -91,6 +95,9 @@ namespace Exposure
 	f32 gEVmanualSOS;
 	f32 gEVmanualSOS0;
 	f32 gEVaverage;
+	f32 gEVmean;
+
+	f32 gLuminanceMeanMin = -12.0f;
 
 	//ExposureValue100
 	f32 EV100(f32 aperture, f32 shutter_time)
@@ -164,7 +171,7 @@ struct UniformDataExposure
 	f32 pad0 = 0.0f;
 
 	f32 mEVaverage;
-	f32 mEVauto;
+	f32 mEVmean;
 	f32 pad1 = 0.0f;
 	uint mEVmode = 1;
 };
@@ -197,6 +204,14 @@ struct UniformDataObject
 	float mRoughness = 0.04f;
 	float mMetallic = 0.0f;
 	int   pbrMaterials = -1;
+};
+
+struct UniformDataLuminanceMean
+{
+	float mLuminanceMin;
+	float mLuminanceRange;
+	float mLuminanceRangeInv;
+	float mFrameTime;
 };
 
 struct Light
@@ -450,12 +465,12 @@ DescriptorSet* pLuminanceDescriptorCompute16[1] = { nullptr };
 Shader* pLuminanceHistoShaderCompute = nullptr;
 Pipeline* pLuminanceHistoPipelineCompute = nullptr;
 RootSignature* pLuminanceHistoRootSigCompute = nullptr;
-DescriptorSet* pLuminanceHistoDescriptorCompute[1] = { nullptr };
+DescriptorSet* pLuminanceHistoDescriptorCompute[2] = { nullptr };
 
 Shader* pLuminanceMeanShaderCompute = nullptr;
 Pipeline* pLuminanceMeanPipelineCompute = nullptr;
 RootSignature* pLuminanceMeanRootSigCompute = nullptr;
-DescriptorSet* pLuminanceMeanDescriptorCompute[1] = { nullptr };
+DescriptorSet* pLuminanceMeanDescriptorCompute[2] = { nullptr };
 
 #define LUMINANCE_COPY_COMPUTE 1
 Shader* pLuminanceCopyShader = nullptr;
@@ -504,6 +519,9 @@ UniformDataCamera gUniformDataCamera;
 
 Buffer*        pBufferUniformExposure[gImageCount] = { NULL };
 UniformDataExposure gUniformDataExposure;
+
+Buffer*        pBufferUniformLuminanceMean[gImageCount] = { NULL };
+UniformDataLuminanceMean gUniformDataLuminanceMean;
 
 UniformDataCamera gUniformDataSky;
 
@@ -958,6 +976,21 @@ public:
 			}
 		}
 
+		{
+			BufferLoadDesc ubDescLuminance = {};
+			ubDescLuminance.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			ubDescLuminance.mDesc.mMemoryUsage = RESOURCE_MEMORY_USAGE_CPU_TO_GPU;
+			ubDescLuminance.mDesc.mSize = sizeof(UniformDataLuminanceMean);
+			ubDescLuminance.mDesc.mFlags = BUFFER_CREATION_FLAG_PERSISTENT_MAP_BIT;
+			ubDescLuminance.pData = NULL;
+
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				ubDescLuminance.ppBuffer = &pBufferUniformLuminanceMean[i];
+				addResource(&ubDescLuminance, nullptr);
+			}
+		}
+
 		// Uniform buffer for extended camera data
 		BufferLoadDesc ubECamDesc = {};
 		ubECamDesc.mDesc.mDescriptors = DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1074,17 +1107,16 @@ public:
 		*(UniformDataLightDirectional*)directionalLightBuffUpdateDesc.pMappedData = gUniformDataDirectionalLights;
 		endUpdateResource(&directionalLightBuffUpdateDesc, NULL);
 
-#if !defined(TARGET_IOS)
-		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
-#endif
 		pGui->AddWidget(OneLineCheckboxWidget("Compute downsample", &gRunDownsampleOnCompute, 0xFFFFFFFF));
 		pGui->AddWidget(OneLineCheckboxWidget("Compute downsample 2 passes", &gRunDownsampleOnCompute2Passes, 0xFFFFFFFF));
 		pGui->AddWidget(SliderFloatWidget("Aperture f-stops", &Exposure::gAperture, 1.0f, 22.0f, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("Shutter 1/s", &Exposure::gShutterTime, 1.0f, 250.0f, 10.0f));
 		pGui->AddWidget(SliderFloatWidget("ISO", &Exposure::gISO, 100.0f, 800.0f, 100.0f));
 		pGui->AddWidget(SliderFloatWidget("EC f-stops", &Exposure::gExposureComp, -4.0f, 4.0f, 1.0f));
-		pGui->AddWidget(SliderFloatWidget("Luminance", &Exposure::gLuminanceAvg, -100.0f, 1000.0f, 1.0f));
-		pGui->AddWidget(SliderUintWidget("EV method: ", &Exposure::gEVmode, 0, 2));
+		pGui->AddWidget(SliderFloatWidget("Luminance avg", &Exposure::gLuminanceAvg, -100.0f, 1000.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Luminance mean", &Exposure::gLuminanceMean, -100.0f, 1000.0f, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("Luminance mean min", &Exposure::gLuminanceMeanMin, -20.0f, -4.0f, 1.0f));
+		pGui->AddWidget(SliderUintWidget("EV method: ", &Exposure::gEVmode, 0, 3));
 		
 		constexpr f32 minEV = -4.0f;
 		constexpr f32 maxEV = 28.0f;
@@ -1092,6 +1124,7 @@ public:
 		pGui->AddWidget(SliderFloatWidget("EV manual SBS: ", &Exposure::gEVmanualSBS, minEV, maxEV, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("EV manual SOS: ", &Exposure::gEVmanualSOS, minEV, maxEV, 1.0f));
 		pGui->AddWidget(SliderFloatWidget("EV average: ", &Exposure::gEVaverage, minEV, maxEV, 1.0f));
+		pGui->AddWidget(SliderFloatWidget("EV mean: ", &Exposure::gEVmean, minEV, maxEV, 1.0f));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -1237,7 +1270,9 @@ public:
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute32[0]);
 		removeDescriptorSet(pRenderer, pLuminanceDescriptorCompute16[0]);
 		removeDescriptorSet(pRenderer, pLuminanceHistoDescriptorCompute[0]);
+		removeDescriptorSet(pRenderer, pLuminanceHistoDescriptorCompute[1]);
 		removeDescriptorSet(pRenderer, pLuminanceMeanDescriptorCompute[0]);
+		removeDescriptorSet(pRenderer, pLuminanceMeanDescriptorCompute[1]);
 		removeDescriptorSet(pRenderer, pLuminanceCopyDescriptorCompute[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetPPR__HolePatching[1]);
@@ -1265,6 +1300,7 @@ public:
 			removeResource(pBufferUniformCameraSky[i]);
 			removeResource(pBufferUniformCamera[i]);
 			removeResource(pBufferUniformExposure[i]);
+			removeResource(pBufferUniformLuminanceMean[i]);
 		}
 
 		removeResource(pBufferUniformLights);
@@ -1932,8 +1968,9 @@ public:
 		}
 		{
 			//Luminance histo compute
-			DescriptorSetDesc setDesc = { pLuminanceHistoRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
-			addDescriptorSet(pRenderer, &setDesc, &pLuminanceHistoDescriptorCompute[0]);
+			DescriptorSetDesc setDesc0 = { pLuminanceHistoRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc0, &pLuminanceHistoDescriptorCompute[0]);
+
 
 			DescriptorData pLuminanceParams[2] = {};
 			pLuminanceParams[0].pName = "HistoGlobal";
@@ -1941,6 +1978,17 @@ public:
 			pLuminanceParams[1].pName = "LuminanceTexture";
 			pLuminanceParams[1].ppTextures = &pLuminanceBufferMips[1]->pTexture;
 			updateDescriptorSet(pRenderer, 0, pLuminanceHistoDescriptorCompute[0], 2, pLuminanceParams);
+
+			DescriptorSetDesc setDesc1 = { pLuminanceHistoRootSigCompute, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc1, &pLuminanceHistoDescriptorCompute[1]);
+
+			pLuminanceParams[0].pName = "cbLuminanceMean";
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				pLuminanceParams[0].ppBuffers = &pBufferUniformLuminanceMean[i];
+				updateDescriptorSet(pRenderer, i, pLuminanceHistoDescriptorCompute[1], 1, pLuminanceParams);
+			}
+			
 
 			PipelineDesc desc_compute = {};
 			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
@@ -1951,8 +1999,8 @@ public:
 		}
 		{
 			//Luminance mean compute
-			DescriptorSetDesc setDesc = { pLuminanceMeanRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
-			addDescriptorSet(pRenderer, &setDesc, &pLuminanceMeanDescriptorCompute[0]);
+			DescriptorSetDesc setDesc0 = { pLuminanceMeanRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc0, &pLuminanceMeanDescriptorCompute[0]);
 
 			DescriptorData pLuminanceParams[2] = {};
 			pLuminanceParams[0].pName = "HistoGlobal";
@@ -1960,6 +2008,16 @@ public:
 			pLuminanceParams[1].pName = "LuminanceMean";
 			pLuminanceParams[1].ppTextures = &pLuminanceMean->pTexture;
 			updateDescriptorSet(pRenderer, 0, pLuminanceMeanDescriptorCompute[0], 2, pLuminanceParams);
+
+			DescriptorSetDesc setDesc1 = { pLuminanceMeanRootSigCompute, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc1, &pLuminanceMeanDescriptorCompute[1]);
+
+			pLuminanceParams[0].pName = "cbLuminanceMean";
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				pLuminanceParams[0].ppBuffers = &pBufferUniformLuminanceMean[i];
+				updateDescriptorSet(pRenderer, i, pLuminanceMeanDescriptorCompute[1], 1, pLuminanceParams);
+			}
 
 			PipelineDesc desc_compute = {};
 			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
@@ -2126,8 +2184,18 @@ public:
 			gUniformDataExposure.mEVmanualSOS = gEVmanualSOS = EV100Comp(ExposureSOS(apertureInv, shutter, gISO), gExposureComp);
 			gEVmanualSOS0 = exposureSOS0;
 			gUniformDataExposure.mEVaverage = gEVaverage = EV100Comp(EP(apertureInv, shutter, gLuminanceAvg), Exposure::gExposureComp);
-			gUniformDataExposure.mEVauto = 0.0f;
+			gUniformDataExposure.mEVmean = gEVmean = EV100Comp(EP(apertureInv, shutter, gLuminanceMean), Exposure::gExposureComp);
 			gUniformDataExposure.mEVmode = gEVmode;
+		}
+
+		// luminance mean
+		{
+			using namespace Exposure;
+			gUniformDataLuminanceMean.mLuminanceMin = gLuminanceMeanMin;
+			gUniformDataLuminanceMean.mLuminanceRange = gLuminanceRange;
+			gUniformDataLuminanceMean.mLuminanceRangeInv = gLuminanceRangeInv;
+			gUniformDataLuminanceMean.mFrameTime = deltaTime;
+
 		}
 
 		//data uniforms
@@ -2172,26 +2240,36 @@ public:
 			waitForFences(pRenderer, 1, &pRenderCompleteFence);
 
 		resetCmdPool(pRenderer, pCmdPools[gFrameIndex]);
-
-		BufferUpdateDesc camBuffUpdateDesc = { pBufferUniformCamera[gFrameIndex] };
-		beginUpdateResource(&camBuffUpdateDesc);
-		*(UniformDataCamera*)camBuffUpdateDesc.pMappedData = gUniformDataCamera;
-		endUpdateResource(&camBuffUpdateDesc, NULL);
-
-		BufferUpdateDesc skyboxViewProjCbv = { pBufferUniformCameraSky[gFrameIndex] };
-		beginUpdateResource(&skyboxViewProjCbv);
-		*(UniformDataCamera*)skyboxViewProjCbv.pMappedData = gUniformDataSky;
-		endUpdateResource(&skyboxViewProjCbv, NULL);
-
-		BufferUpdateDesc CbvExtendedCamera = { pBufferUniformExtendedCamera[gFrameIndex] };
-		beginUpdateResource(&CbvExtendedCamera);
-		*(UniformDataCameraExtended*)CbvExtendedCamera.pMappedData = gUniformDataExtenedCamera;
-		endUpdateResource(&CbvExtendedCamera, NULL);
-
-		BufferUpdateDesc exposureBuffUpdateDesc = { pBufferUniformExposure[gFrameIndex] };
-		beginUpdateResource(&exposureBuffUpdateDesc);
-		*(UniformDataExposure*)exposureBuffUpdateDesc.pMappedData = gUniformDataExposure;
-		endUpdateResource(&camBuffUpdateDesc, nullptr);
+		{
+			BufferUpdateDesc camBuffUpdateDesc = { pBufferUniformCamera[gFrameIndex] };
+			beginUpdateResource(&camBuffUpdateDesc);
+			*(UniformDataCamera*)camBuffUpdateDesc.pMappedData = gUniformDataCamera;
+			endUpdateResource(&camBuffUpdateDesc, NULL);
+		}
+		{
+			BufferUpdateDesc skyboxViewProjCbv = { pBufferUniformCameraSky[gFrameIndex] };
+			beginUpdateResource(&skyboxViewProjCbv);
+			*(UniformDataCamera*)skyboxViewProjCbv.pMappedData = gUniformDataSky;
+			endUpdateResource(&skyboxViewProjCbv, NULL);
+		}
+		{
+			BufferUpdateDesc CbvExtendedCamera = { pBufferUniformExtendedCamera[gFrameIndex] };
+			beginUpdateResource(&CbvExtendedCamera);
+			*(UniformDataCameraExtended*)CbvExtendedCamera.pMappedData = gUniformDataExtenedCamera;
+			endUpdateResource(&CbvExtendedCamera, NULL);
+		}
+		{
+			BufferUpdateDesc exposureBuffUpdateDesc = { pBufferUniformExposure[gFrameIndex] };
+			beginUpdateResource(&exposureBuffUpdateDesc);
+			*(UniformDataExposure*)exposureBuffUpdateDesc.pMappedData = gUniformDataExposure;
+			endUpdateResource(&exposureBuffUpdateDesc, nullptr);
+		}
+		{
+			BufferUpdateDesc luminanceBuffUpdateDesc = { pBufferUniformLuminanceMean[gFrameIndex] };
+			beginUpdateResource(&luminanceBuffUpdateDesc);
+			*(UniformDataLuminanceMean*)luminanceBuffUpdateDesc.pMappedData = gUniformDataLuminanceMean;
+			endUpdateResource(&luminanceBuffUpdateDesc, nullptr);
+		}
 
 		// Draw G-buffers
 		Cmd* cmd = pCmds[gFrameIndex];
@@ -2349,6 +2427,7 @@ public:
 
 			cmdBindPipeline(cmd, pLuminanceHistoPipelineCompute);
 			cmdBindDescriptorSet(cmd, 0, pLuminanceHistoDescriptorCompute[0]);
+			cmdBindDescriptorSet(cmd, gFrameIndex, pLuminanceHistoDescriptorCompute[1]);
 			cmdDispatch(cmd, width_src >> 4u, height_src >> 3u, 1);
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
@@ -2361,6 +2440,7 @@ public:
 
 			cmdBindPipeline(cmd, pLuminanceMeanPipelineCompute);
 			cmdBindDescriptorSet(cmd, 0, pLuminanceMeanDescriptorCompute[0]);
+			cmdBindDescriptorSet(cmd, gFrameIndex, pLuminanceMeanDescriptorCompute[1]);
 			cmdDispatch(cmd, 1, 1, 1);
 		}
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
@@ -2622,7 +2702,53 @@ public:
 			memcpy(mappedData, srcData, row_size);
 
 			f32 luminance_average = half2float(*mappedData);
-			Exposure::gLuminanceAvg = luminance_average;
+			Exposure::gLuminanceAvg = exp2f(luminance_average);
+		}
+
+		// average luminance readback
+		{
+			//send copy request this frame
+			uint64_t row_size = 0;
+			{
+				Buffer* target_readback = pLuminanceMeanReadback[gFrameFlopFlip];
+				RenderTarget* source_readback = pLuminanceMean;
+				// Calculate the size of buffer required for copying the src texture.
+				D3D12_RESOURCE_DESC resourceDesc = source_readback->pTexture->pDxResource->GetDesc();
+				uint64_t padded_size = 0;
+				uint32_t num_rows = 0;
+				D3D12_PLACED_SUBRESOURCE_FOOTPRINT imageLayout = {};
+				pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &imageLayout, &num_rows, &row_size, &padded_size);
+
+				// Transition layout to copy data out.
+				RenderTargetBarrier srcBarrier = { source_readback, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_COPY_SOURCE };
+				cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
+
+				D3D12_TEXTURE_COPY_LOCATION src = {};
+				D3D12_TEXTURE_COPY_LOCATION dst = {};
+
+				src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+				src.pResource = source_readback->pTexture->pDxResource;
+				src.SubresourceIndex = 0;
+
+				dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+				dst.pResource = target_readback->pDxResource;
+				cmd->pRenderer->pDxDevice->GetCopyableFootprints(&resourceDesc, 0, 1, 0, &dst.PlacedFootprint, NULL, NULL, NULL);
+
+				cmd->pDxCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, NULL);
+
+				// Transition layout to original state.
+				srcBarrier = { source_readback, RESOURCE_STATE_COPY_SOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+				cmdResourceBarrier(cmd, 0, 0, 0, 0, 1, &srcBarrier);
+			}
+			//receive request sent last frame
+			{
+				uint16_t mappedData[128] = {};
+				uint16_t* srcData = static_cast<uint16_t*>(pLuminanceMeanReadback[gFrameFlipFlop]->pCpuMappedAddress);
+				memcpy(mappedData, srcData, row_size);
+
+				f32 luminance_mean = half2float(*mappedData);
+				Exposure::gLuminanceMean = luminance_mean;
+			}
 		}
 
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Apply Reflections");
