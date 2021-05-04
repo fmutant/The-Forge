@@ -86,6 +86,19 @@ struct UniformObjData
 	int   pbrMaterials = -1;
 };
 
+struct UniformDataTerrain
+{
+	uint2 mViewportSize;
+	uint mTerrainTilesCount;
+	float mTerrainTilesCountInv;
+
+	float mTerrainWidth;
+	float mTerrainHeight;
+	float mTerrainAlbedoMultiplier;
+	float mPad0;
+
+};
+
 struct Light
 {
 	vec4  mPos;
@@ -291,6 +304,13 @@ Pipeline*      pSkyboxPipeline = NULL;
 RootSignature* pSkyboxRootSignature = NULL;
 DescriptorSet* pDescriptorSetSkybox[2] = { NULL };
 
+const static uint32_t gTerrainResolution = 512;
+float gTerrainAlbedoMultiplier = 1.0f;
+Shader*        pShaderTerrain = nullptr;
+Pipeline*      pPipelineTerrain = nullptr;
+RootSignature* pRootSigTerrain = nullptr;
+DescriptorSet* pDescriptorSetTerrain[2] = { nullptr };
+
 Shader*        pPPR_HolePatchingShader = NULL;
 RootSignature* pPPR_HolePatchingRootSignature = NULL;
 Pipeline*      pPPR_HolePatchingPipeline = NULL;
@@ -304,6 +324,7 @@ RootSignature* pRootSigGbuffers = NULL;
 DescriptorSet* pDescriptorSetGbuffers[3] = { NULL };
 
 Texture* pSkybox = NULL;
+Texture* pTerrainTexture = nullptr;
 Texture* pBRDFIntegrationMap = NULL;
 Texture* pIrradianceMap = NULL;
 Texture* pSpecularMap = NULL;
@@ -337,12 +358,17 @@ Buffer* pLionBuffer;
 Buffer*        pBufferUniformCamera[gImageCount] = { NULL };
 UniformCamData gUniformDataCamera;
 
-UniformCamData gUniformDataSky;
+UniformCamData gUniformDataCameraSky;
+UniformCamData gUniformDataCameraTerrain;
+UniformDataTerrain gUniformDataTerrain;
 
 Buffer*                pBufferUniformExtendedCamera[gImageCount] = { NULL };
 UniformExtendedCamData gUniformDataExtenedCamera;
 
 Buffer* pBufferUniformCameraSky[gImageCount] = { NULL };
+
+Buffer* pBufferUniformCameraTerrain[gImageCount] = { nullptr };
+Buffer* pBufferUniformTerrain[gImageCount] = { nullptr };
 
 Buffer*          pBufferUniformLights = NULL;
 UniformLightData gUniformDataLights;
@@ -353,10 +379,9 @@ UniformDirectionalLightData gUniformDataDirectionalLights;
 Shader*   pShaderPostProc = NULL;
 Pipeline* pPipelinePostProc = NULL;
 
-Sampler* pSamplerBilinear = NULL;
-Sampler* pSamplerLinear = NULL;
-
 Sampler* pSamplerNearest = NULL;
+Sampler* pSamplerBilinear = NULL;
+Sampler* pSamplerLinearClamp = nullptr;
 
 uint32_t gFrameIndex = 0;
 uint32_t gFrameFlipFlop = 0;
@@ -483,6 +508,10 @@ class Sky : public IApp
 									ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT };
 		addSampler(pRenderer, &samplerDesc, &pSamplerBilinear);
 
+		samplerDesc = { FILTER_LINEAR, FILTER_LINEAR, MIPMAP_MODE_LINEAR,
+									ADDRESS_MODE_CLAMP_TO_EDGE, ADDRESS_MODE_CLAMP_TO_EDGE, ADDRESS_MODE_CLAMP_TO_EDGE };
+		addSampler(pRenderer, &samplerDesc, &pSamplerLinearClamp);
+
 		SamplerDesc nearstSamplerDesc = { FILTER_NEAREST,      FILTER_NEAREST,      MIPMAP_MODE_NEAREST,
 										  ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT, ADDRESS_MODE_REPEAT };
 		addSampler(pRenderer, &nearstSamplerDesc, &pSamplerNearest);
@@ -530,6 +559,20 @@ class Sky : public IApp
 		skyboxRootDesc.ppStaticSamplers = &pSamplerBilinear;
 		addRootSignature(pRenderer, &skyboxRootDesc, &pSkyboxRootSignature);
 
+		{
+			ShaderLoadDesc shaderDescTerrain = {};
+			shaderDescTerrain.mStages[0] = { "terrain.vert", nullptr, 0 };
+			shaderDescTerrain.mStages[1] = { "terrain.frag", nullptr, 0 };
+			addShader(pRenderer, &shaderDescTerrain, &pShaderTerrain);
+			
+			const char* pSamplerNameTerrain = "samplerLinearClamp";
+			RootSignatureDesc rootDescTerrain = { &pShaderTerrain, 1 };
+			rootDescTerrain.mStaticSamplerCount = 1;
+			rootDescTerrain.ppStaticSamplerNames = &pSamplerNameTerrain;
+			rootDescTerrain.ppStaticSamplers = &pSamplerLinearClamp;
+			addRootSignature(pRenderer, &rootDescTerrain, &pRootSigTerrain);
+		}
+
 		//BRDF
 		ShaderLoadDesc brdfRenderSceneShaderDesc = {};
 		brdfRenderSceneShaderDesc.mStages[0] = { "renderSceneBRDF.vert", NULL, 0 };
@@ -565,6 +608,13 @@ class Sky : public IApp
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetSkybox[0]);
 		setDesc = { pSkyboxRootSignature, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetSkybox[1]);
+		{
+			// terrain
+			DescriptorSetDesc setDesc = { pRootSigTerrain, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetTerrain[0]);
+			setDesc = { pRootSigTerrain, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetTerrain[1]);
+		}
 		// GBuffer
 		if (gUseTexturesFallback)
 		{
@@ -671,6 +721,10 @@ class Sky : public IApp
 			ubCamDesc.ppBuffer = &pBufferUniformCamera[i];
 			addResource(&ubCamDesc, NULL);
 			ubCamDesc.ppBuffer = &pBufferUniformCameraSky[i];
+			addResource(&ubCamDesc, NULL);
+			ubCamDesc.ppBuffer = &pBufferUniformCameraTerrain[i];
+			addResource(&ubCamDesc, NULL);
+			ubCamDesc.ppBuffer = &pBufferUniformTerrain[i];
 			addResource(&ubCamDesc, NULL);
 		}
 
@@ -848,7 +902,13 @@ class Sky : public IApp
 		{
 			loadMesh(i);
 		}
-
+		//terrain heightmap
+		{
+			TextureLoadDesc textureDesc = {};
+			textureDesc.pFileName = "SponzaPBR_Textures/heightmap_zero";
+			textureDesc.ppTexture = &pTerrainTexture;
+			addResource(&textureDesc, &gResourceSyncToken);
+		}
 		gResourceSyncStartToken = getLastTokenCompleted();
 
 		assignSponzaTextures();
@@ -933,6 +993,8 @@ class Sky : public IApp
 
 		removeDescriptorSet(pRenderer, pDescriptorSetSkybox[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetSkybox[1]);
+		removeDescriptorSet(pRenderer, pDescriptorSetTerrain[0]);
+		removeDescriptorSet(pRenderer, pDescriptorSetTerrain[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[2]);
@@ -950,6 +1012,7 @@ class Sky : public IApp
 		removeResource(pSpecularMap);
 		removeResource(pIrradianceMap);
 		removeResource(pSkybox);
+		removeResource(pTerrainTexture);
 		removeResource(pBRDFIntegrationMap);
 
 		removeResource(pSponzaBuffer);
@@ -961,6 +1024,8 @@ class Sky : public IApp
 		{
 			removeResource(pBufferUniformExtendedCamera[i]);
 			removeResource(pBufferUniformCameraSky[i]);
+			removeResource(pBufferUniformCameraTerrain[i]);
+			removeResource(pBufferUniformTerrain[i]);
 			removeResource(pBufferUniformCamera[i]);
 		}
 
@@ -977,14 +1042,17 @@ class Sky : public IApp
 		removeShader(pRenderer, pPPR_HolePatchingShader);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
+		removeShader(pRenderer, pShaderTerrain);
 		removeShader(pRenderer, pShaderGbuffers);
 
 		removeSampler(pRenderer, pSamplerBilinear);
+		removeSampler(pRenderer, pSamplerLinearClamp);
 		removeSampler(pRenderer, pSamplerNearest);
 
 		removeRootSignature(pRenderer, pPPR_HolePatchingRootSignature);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
+		removeRootSignature(pRenderer, pRootSigTerrain);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
 
 		// Remove commands and command pool&
@@ -1418,6 +1486,25 @@ class Sky : public IApp
 		deferredPassPipelineSettings.pRasterizerState = &rasterizerStateDesc;
 		addPipeline(pRenderer, &desc, &pPipelineGbuffers);
 
+		//layout and pipeline for terrain draw
+		{
+			deferredPassPipelineSettings = {};
+			deferredPassPipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			deferredPassPipelineSettings.mRenderTargetCount = DEFERRED_RT_COUNT;
+			deferredPassPipelineSettings.pDepthState = &depthStateDesc;
+
+			deferredPassPipelineSettings.pColorFormats = deferredFormats;
+			deferredPassPipelineSettings.mSampleCount = pRenderTargetDeferredPass[0][0]->mSampleCount;
+			deferredPassPipelineSettings.mSampleQuality = pRenderTargetDeferredPass[0][0]->mSampleQuality;
+
+			deferredPassPipelineSettings.mDepthStencilFormat = pDepthBuffer->mFormat;
+			deferredPassPipelineSettings.pRootSignature = pRootSigTerrain;
+			deferredPassPipelineSettings.pShaderProgram = pShaderTerrain;
+			deferredPassPipelineSettings.pVertexLayout = nullptr;
+			deferredPassPipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pPipelineTerrain);
+		}
+
 		//layout and pipeline for skybox draw
 		VertexLayout vertexLayoutSkybox = {};
 		vertexLayoutSkybox.mAttribCount = 1;
@@ -1515,6 +1602,7 @@ class Sky : public IApp
 
 		removePipeline(pRenderer, pPipelineBRDF);
 		removePipeline(pRenderer, pSkyboxPipeline);
+		removePipeline(pRenderer, pPipelineTerrain);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
 
@@ -1571,9 +1659,21 @@ class Sky : public IApp
 		gUniformDataCamera.mCamPos = pCameraController->getViewPosition();
 
 		viewMat.setTranslation(vec3(0));
-		gUniformDataSky = gUniformDataCamera;
-		gUniformDataSky.mProjectView = projMat * viewMat;
+		gUniformDataCameraSky = gUniformDataCamera;
+		gUniformDataCameraSky.mProjectView = projMat * viewMat;
 
+		//terrain
+		{
+			gUniformDataCameraTerrain = gUniformDataCamera;
+			gUniformDataCameraTerrain.mProjectView = projMat * viewMat;
+
+			gUniformDataTerrain.mViewportSize = { static_cast<uint>(mSettings.mWidth), static_cast<uint>(mSettings.mHeight) };
+			gUniformDataTerrain.mTerrainTilesCount = gTerrainResolution;
+			gUniformDataTerrain.mTerrainTilesCountInv = 1.0f / gTerrainResolution;
+			gUniformDataTerrain.mTerrainWidth = 100.0f; //kms
+			gUniformDataTerrain.mTerrainHeight = 100.0f; //kms
+			gUniformDataTerrain.mTerrainAlbedoMultiplier = gTerrainAlbedoMultiplier;
+		}
 		//data uniforms
 		gUniformDataExtenedCamera.mCameraWorldPos = vec4(pCameraController->getViewPosition(), 1.0);
 		gUniformDataExtenedCamera.mViewMat = pCameraController->getViewMatrix();
@@ -1624,8 +1724,20 @@ class Sky : public IApp
 
 		BufferUpdateDesc skyboxViewProjCbv = { pBufferUniformCameraSky[gFrameIndex] };
 		beginUpdateResource(&skyboxViewProjCbv);
-		*(UniformCamData*)skyboxViewProjCbv.pMappedData = gUniformDataSky;
+		*(UniformCamData*)skyboxViewProjCbv.pMappedData = gUniformDataCameraSky;
 		endUpdateResource(&skyboxViewProjCbv, NULL);
+
+		{
+			BufferUpdateDesc terrainViewProjCbv = { pBufferUniformCameraTerrain[gFrameIndex] };
+			beginUpdateResource(&terrainViewProjCbv);
+			*(UniformCamData*)terrainViewProjCbv.pMappedData = gUniformDataCameraTerrain;
+			endUpdateResource(&terrainViewProjCbv, nullptr);
+
+			BufferUpdateDesc terrainCbv = { pBufferUniformTerrain[gFrameIndex] };
+			beginUpdateResource(&terrainCbv);
+			*(UniformDataTerrain*)terrainCbv.pMappedData = gUniformDataTerrain;
+			endUpdateResource(&terrainCbv, nullptr);
+		}
 
 		BufferUpdateDesc CbvExtendedCamera = { pBufferUniformExtendedCamera[gFrameIndex] };
 		beginUpdateResource(&CbvExtendedCamera);
@@ -1686,6 +1798,7 @@ class Sky : public IApp
 		cmdSetScissor(cmd, 0, 0, pRenderTargetDeferredPass[0][0]->mWidth, pRenderTargetDeferredPass[0][0]->mHeight);
 
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+
 		// Draw Sponza
 		cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Fill GBuffers");
 		//The default code path we have if not iOS uses an array of texture of size 81
@@ -1705,6 +1818,18 @@ class Sky : public IApp
 				PrepareDescriptorSets(true);
 			}
 
+			// Draw the terrain
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Render terrain");
+
+				cmdBindPipeline(cmd, pPipelineTerrain);
+				cmdBindDescriptorSet(cmd, 0, pDescriptorSetTerrain[0]);
+				cmdBindDescriptorSet(cmd, gFrameIndex, pDescriptorSetTerrain[1]);
+				cmdDrawInstanced(cmd, 6, 0, gTerrainResolution * gTerrainResolution, 0);
+
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
+			/*
 			Geometry& sponzaMesh = *gModels[SPONZA_MODEL];
 
 			cmdBindIndexBuffer(cmd, sponzaMesh.pIndexBuffer, sponzaMesh.mIndexType, 0);
@@ -1810,6 +1935,7 @@ class Sky : public IApp
 				IndirectDrawIndexArguments& cmdData = lionMesh.pDrawArgs[i];
 				cmdDrawIndexed(cmd, cmdData.mIndexCount, cmdData.mStartIndex, cmdData.mVertexOffset);
 			}
+			*/
 		}
 
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
@@ -1996,6 +2122,23 @@ class Sky : public IApp
 			PPR_HolePatchingParams[0].pName = "SceneTexture";
 			PPR_HolePatchingParams[0].ppTextures = &pSceneBuffer->pTexture;
 			updateDescriptorSet(pRenderer, 0, pDescriptorSetPPR__HolePatching[0], 1, PPR_HolePatchingParams);
+		}
+
+		if (dataLoaded)
+		{
+			// terrain descriptor sets
+			DescriptorData terrainParams[2] = {};
+			terrainParams[0].pName = "terrainHeightTex";
+			terrainParams[0].ppTextures = &pTerrainTexture;
+			updateDescriptorSet(pRenderer, 0, pDescriptorSetTerrain[0], 1, terrainParams);
+			for (uint32_t i = 0; i < gImageCount; ++i)
+			{
+				terrainParams[0].pName = "cbCamera";
+				terrainParams[0].ppBuffers = &pBufferUniformCameraTerrain[i];
+				terrainParams[1].pName = "cbTerrain";
+				terrainParams[1].ppBuffers = &pBufferUniformTerrain[i];
+				updateDescriptorSet(pRenderer, i, pDescriptorSetTerrain[1], 2, terrainParams);
+			}
 		}
 	}
 
