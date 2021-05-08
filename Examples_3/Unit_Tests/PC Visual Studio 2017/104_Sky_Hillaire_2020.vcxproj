@@ -38,6 +38,7 @@
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\skybox.vert" />
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\terrain.frag" />
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\terrain.vert" />
+    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\transmittanceLUT.comp" />
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\BRDFIntegration.comp" />
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\computeIrradianceMap.comp" />
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\computeSpecularMap.comp" />
