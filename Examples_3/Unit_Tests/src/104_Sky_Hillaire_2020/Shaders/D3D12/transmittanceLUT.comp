@@ -81,16 +81,18 @@ min16float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, min16flo
 	const float r_mu = r * mu;
 	const float r_mu_2 = 2.0f * r_mu;
 	const float discriminant = max(rsqr * (mu * mu - 1.0) + mRadiusTopSqr, 0.0f);
-	const float dx = max(sqrt(discriminant) - r_mu, 0.0f) * 0.002f; // 1.0f/500.0f
-	const float dx_max = dx * 500.0f;
+	const float dx_max = max(sqrt(discriminant) - r_mu, 0.0f);
+	const float dx = dx_max * 0.002f; // 1.0f/500.0f
+	const min16float dxh = min16float(dx);
+	
 	const float radius_bottom = mRadiusBottom;
 	// Integration loop.
 	min16float altitude = r - radius_bottom;
 	min16float3x4 profile = altitude < min16float(0.0h) ? profile0 : profile1;
 	min16float3 result;
-	result.x = 0.5f * dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
-	result.y = 0.5f * dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
-	result.z = 0.5f * dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
+	result.x = min16float(0.5h) * dxh * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
+	result.y = min16float(0.5h) * dxh * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
+	result.z = min16float(0.5h) * dxh * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
 	for (float d_i = dx; d_i < dx_max; d_i += dx)
 	{
 		// Distance between the current sample point and the planet center.
@@ -99,16 +101,16 @@ min16float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, min16flo
 		// at the bottom of the atmosphere, yielding a dimensionless number).
 		altitude = r_i - radius_bottom;
 		profile = altitude < min16float(0.0h) ? profile0 : profile1;
-		result.x += dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
-		result.y += dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
-		result.z += dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
+		result.x += dxh * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
+		result.y += dxh * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
+		result.z += dxh * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
 	}
 	float r_i = sqrt(dx_max * dx_max + r_mu_2 * dx_max + rsqr);
 	altitude = r_i - radius_bottom;
 	profile = altitude < min16float(0.0h) ? profile0 : profile1;
-	result.x += 0.5f * dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
-	result.y += 0.5f * dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
-	result.z += 0.5f * dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
+	result.x += min16float(0.5h) * dxh * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
+	result.y += min16float(0.5h) * dxh * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
+	result.z += min16float(0.5h) * dxh * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
 	return result;
 }
 #endif
@@ -131,8 +133,7 @@ void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 grou
 	float d = max(d_min + mu_r.x * (d_max - d_min), 1e-6f);
 	
 	float mu = clamp(0.5f * (distance_bound * distance_bound - rho_sqr - d * d) / (r * d), -1.0f, 1.0f);
-	
-	
+
 #if 0
 	float3 transmittance = float3(0.0f, 0.0f, 0.0f);
 	transmittance += mScatteringRayleigh * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthRayleigh, mDensityRayleigh[0], mDensityRayleigh[1], r, rsqr, mu);
