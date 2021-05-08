@@ -43,6 +43,7 @@ cbuffer cbAtmosphere : register(b0, UPDATE_FREQ_PER_FRAME)
 	float2 mPad2;
 }
 
+#if 0
 float GetProfileDensity(float2 widths, float4 profile0, float4 profile1, float altitude)
 {
 	return saturate(altitude < widths.x ?
@@ -74,7 +75,43 @@ float ComputeOpticalLengthToTopAtmosphereBoundary(float2 widths, float4 profile0
 	result += 0.5f * dx * GetProfileDensity(widths, profile0, profile1, r_i - radius_bottom);
 	return result;
 }
-
+#else
+float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, float3x4 profile0, float3x4 profile1, float r, float rsqr, float mu)
+{
+	const float r_mu = r * mu;
+	const float r_mu_2 = 2.0f * r_mu;
+	const float discriminant = max(rsqr * (mu * mu - 1.0) + mRadiusTopSqr, 0.0f);
+	const float dx = max(sqrt(discriminant) - r_mu, 0.0f) * 0.002f; // 1.0f/500.0f
+	const float dx_max = dx * 500.0f;
+	const float radius_bottom = mRadiusBottom;
+	// Integration loop.
+	float altitude = r - radius_bottom;
+	float3x4 profile = altitude < 0.0f ? profile0 : profile1;
+	float3 result;
+	result.x = 0.5f * dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
+	result.y = 0.5f * dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
+	result.z = 0.5f * dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
+	for (float d_i = dx; d_i < dx_max; d_i += dx)
+	{
+		// Distance between the current sample point and the planet center.
+		float r_i = sqrt(d_i * d_i + r_mu_2 * d_i + rsqr);
+		// Number density at the current sample point (divided by the number density
+		// at the bottom of the atmosphere, yielding a dimensionless number).
+		altitude = r_i - radius_bottom;
+		profile = altitude < 0.0f ? profile0 : profile1;
+		result.x += dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
+		result.y += dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
+		result.z += dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
+	}
+	float r_i = sqrt(dx_max * dx_max + r_mu_2 * dx_max + rsqr);
+	altitude = r_i - radius_bottom;
+	profile = altitude < 0.0f ? profile0 : profile1;
+	result.x += 0.5f * dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
+	result.y += 0.5f * dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
+	result.z += 0.5f * dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
+	return result;
+}
+#endif
 [numthreads(32, 32, 1)]
 void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 groupID : SV_GroupID)
 {
@@ -96,10 +133,18 @@ void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 grou
 	float mu = clamp(0.5f * (distance_bound * distance_bound - rho_sqr - d * d) / (r * d), -1.0f, 1.0f);
 	
 	float3 transmittance = float3(0.0f, 0.0f, 0.0f);
-	
+#if 0
 	transmittance += mScatteringRayleigh * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthRayleigh, mDensityRayleigh[0], mDensityRayleigh[1], r, rsqr, mu);
 	transmittance += mExtinctionMie * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthMie, mDensityMie[0], mDensityMie[1], r, rsqr, mu);
 	transmittance += mExtinctionAbsorption * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthAbsorption, mDensityAbsorption[0], mDensityAbsorption[1], r, rsqr, mu);
-	
+#else
+	float3 widths = float3(mLayerWidthRayleigh.x, mLayerWidthMie.x, mLayerWidthAbsorption.x);
+	float3x4 densities0 = float3x4(mDensityRayleigh[0], mDensityMie[0], mDensityAbsorption[0]);
+	float3x4 densities1 = float3x4(mDensityRayleigh[1], mDensityMie[1], mDensityAbsorption[1]);
+	float3 optical_lengths = ComputeOpticalLengthToTopAtmosphereBoundary3(widths, densities0, densities1, r, rsqr, mu);
+	transmittance += mScatteringRayleigh * optical_lengths.x;
+	transmittance += mExtinctionMie * optical_lengths.y;
+	transmittance += mExtinctionAbsorption * optical_lengths.z;
+#endif
 	TransmittanceLUT[tid.xy] = float4(exp(-transmittance), 1.0h);
 }
