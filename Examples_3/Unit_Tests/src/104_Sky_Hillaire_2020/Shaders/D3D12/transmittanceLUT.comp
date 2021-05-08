@@ -76,7 +76,7 @@ float ComputeOpticalLengthToTopAtmosphereBoundary(float2 widths, float4 profile0
 	return result;
 }
 #else
-float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, float3x4 profile0, float3x4 profile1, float r, float rsqr, float mu)
+min16float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, min16float3x4 profile0, min16float3x4 profile1, float r, float rsqr, float mu)
 {
 	const float r_mu = r * mu;
 	const float r_mu_2 = 2.0f * r_mu;
@@ -85,9 +85,9 @@ float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, float3x4 prof
 	const float dx_max = dx * 500.0f;
 	const float radius_bottom = mRadiusBottom;
 	// Integration loop.
-	float altitude = r - radius_bottom;
-	float3x4 profile = altitude < 0.0f ? profile0 : profile1;
-	float3 result;
+	min16float altitude = r - radius_bottom;
+	min16float3x4 profile = altitude < min16float(0.0h) ? profile0 : profile1;
+	min16float3 result;
 	result.x = 0.5f * dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
 	result.y = 0.5f * dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
 	result.z = 0.5f * dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
@@ -98,14 +98,14 @@ float3 ComputeOpticalLengthToTopAtmosphereBoundary3(float3 widths, float3x4 prof
 		// Number density at the current sample point (divided by the number density
 		// at the bottom of the atmosphere, yielding a dimensionless number).
 		altitude = r_i - radius_bottom;
-		profile = altitude < 0.0f ? profile0 : profile1;
+		profile = altitude < min16float(0.0h) ? profile0 : profile1;
 		result.x += dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
 		result.y += dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
 		result.z += dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
 	}
 	float r_i = sqrt(dx_max * dx_max + r_mu_2 * dx_max + rsqr);
 	altitude = r_i - radius_bottom;
-	profile = altitude < 0.0f ? profile0 : profile1;
+	profile = altitude < min16float(0.0h) ? profile0 : profile1;
 	result.x += 0.5f * dx * saturate(profile[0].x * exp(profile[0].y * altitude) + profile[0].z * altitude + profile[0].w);
 	result.y += 0.5f * dx * saturate(profile[1].x * exp(profile[1].y * altitude) + profile[1].z * altitude + profile[1].w);
 	result.z += 0.5f * dx * saturate(profile[2].x * exp(profile[2].y * altitude) + profile[2].z * altitude + profile[2].w);
@@ -132,16 +132,18 @@ void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 grou
 	
 	float mu = clamp(0.5f * (distance_bound * distance_bound - rho_sqr - d * d) / (r * d), -1.0f, 1.0f);
 	
-	float3 transmittance = float3(0.0f, 0.0f, 0.0f);
+	
 #if 0
+	float3 transmittance = float3(0.0f, 0.0f, 0.0f);
 	transmittance += mScatteringRayleigh * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthRayleigh, mDensityRayleigh[0], mDensityRayleigh[1], r, rsqr, mu);
 	transmittance += mExtinctionMie * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthMie, mDensityMie[0], mDensityMie[1], r, rsqr, mu);
 	transmittance += mExtinctionAbsorption * ComputeOpticalLengthToTopAtmosphereBoundary(mLayerWidthAbsorption, mDensityAbsorption[0], mDensityAbsorption[1], r, rsqr, mu);
 #else
-	float3 widths = float3(mLayerWidthRayleigh.x, mLayerWidthMie.x, mLayerWidthAbsorption.x);
-	float3x4 densities0 = float3x4(mDensityRayleigh[0], mDensityMie[0], mDensityAbsorption[0]);
-	float3x4 densities1 = float3x4(mDensityRayleigh[1], mDensityMie[1], mDensityAbsorption[1]);
-	float3 optical_lengths = ComputeOpticalLengthToTopAtmosphereBoundary3(widths, densities0, densities1, r, rsqr, mu);
+	min16float3 transmittance = min16float3(0.0h, 0.0h, 0.0h);
+	min16float3 widths = float3(mLayerWidthRayleigh.x, mLayerWidthMie.x, mLayerWidthAbsorption.x);
+	min16float3x4 densities0 = float3x4(mDensityRayleigh[0], mDensityMie[0], mDensityAbsorption[0]);
+	min16float3x4 densities1 = float3x4(mDensityRayleigh[1], mDensityMie[1], mDensityAbsorption[1]);
+	min16float3 optical_lengths = ComputeOpticalLengthToTopAtmosphereBoundary3(widths, densities0, densities1, r, rsqr, mu);
 	transmittance += mScatteringRayleigh * optical_lengths.x;
 	transmittance += mExtinctionMie * optical_lengths.y;
 	transmittance += mExtinctionAbsorption * optical_lengths.z;
