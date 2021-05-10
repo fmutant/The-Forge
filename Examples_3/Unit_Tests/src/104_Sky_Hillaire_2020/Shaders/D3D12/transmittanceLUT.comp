@@ -1,18 +1,5 @@
 RWTexture2D<min16float4> TransmittanceLUT : register(u0);
 
-struct DensityProfileLayer
-{
-	float exp_term;
-	float exp_scale;
-	float linear_term;
-	float constant_term;
-};
-
-struct DensityProfile
-{
-	DensityProfileLayer layers[2];
-};
-
 cbuffer cbAtmosphere : register(b0, UPDATE_FREQ_PER_FRAME)
 {
 	float mRadiusBottom;
@@ -126,25 +113,37 @@ min16float3 ComputeOpticalLengthToTopAtmosphereBoundary3(min16float3 widths, min
 	return result;
 }
 
+void UV2TransmittanceLUTParams(float2 uv, out float view_zenith_cos, out float view_height, out float view_height_sqr)
+{
+	float distance_bound = mDistanceBound;
+	
+	float rho = distance_bound * uv.y;
+	float rho_sqr = rho * rho;
+	
+	float rsqr = rho_sqr + mRadiusBottomSqr;
+	view_height_sqr = rsqr;
+	view_height = sqrt(rsqr);
+	
+	float d_min = mRadiusTop - view_height;
+	float d_max = rho + distance_bound;
+	float d = d_min + uv.x * (d_max - d_min);
+	
+	view_zenith_cos = 0.0f == d ? 1.0f : clamp(0.5f * (distance_bound * distance_bound - rho_sqr - d * d) / (view_height * d), -1.0f, 1.0f);
+}
+
 [numthreads(32, 32, 1)]
 void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 groupID : SV_GroupID)
 {
 	float2 tex_size_inv = float2(mTransmittanceWidthInv, mTransmittanceHeightInv);
 	float2 half_pixel = float2(0.5f, 0.5f) * tex_size_inv;
-	float distance_bound = mDistanceBound;
 	
-	float2 mu_r = (float2(tid.xy) * tex_size_inv - half_pixel) / (float2(1.0f, 1.0f) - tex_size_inv);
-	float rho = distance_bound * mu_r.y;
-	float rho_sqr = rho * rho;
+	float2 uv = (float2(tid.xy) * tex_size_inv - half_pixel) / (float2(1.0f, 1.0f) - tex_size_inv);
 	
-	float rsqr = rho_sqr + mRadiusBottomSqr;
-	float r = sqrt(rsqr);
-	
-	float d_min = mRadiusTop - r;
-	float d_max = rho + distance_bound;
-	float d = max(d_min + mu_r.x * (d_max - d_min), 1e-6f);
-	
-	float mu = clamp(0.5f * (distance_bound * distance_bound - rho_sqr - d * d) / (r * d), -1.0f, 1.0f);
+	float r;
+	float rsqr;
+	float mu;
+	UV2TransmittanceLUTParams(uv, mu, r, rsqr);
+
 #if 0
 	float3 transmittance0 = float3(0.0f, 0.0f, 0.0f);
 	float3 optical_lengths0;
