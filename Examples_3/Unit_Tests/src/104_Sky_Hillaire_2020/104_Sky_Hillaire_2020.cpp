@@ -62,6 +62,7 @@ struct UniformCamData
 	mat4 mProjectView;
 	mat4 mPrevProjectView;
 	vec3 mCamPos;
+	float mPad0;
 };
 
 // Have a uniform for extended camera data
@@ -74,6 +75,9 @@ struct UniformExtendedCamData
 
 	vec4 mCameraWorldPos;
 	vec4 mViewPortSize;
+
+	mat4 mProjectViewInv;
+	mat4 mPrevProjectViewInv;
 };
 
 // Have a uniform for object data
@@ -126,6 +130,11 @@ struct UniformDataAtmosphere
 	float4 mDensityAbsorption[2];
 	float2 mLayerWidthAbsorption;
 	float2 mPad2;
+
+	float3 mSunDir{ 0.0f, 1.0f, 0.0f };
+	float mPad3;
+	float3 mViewDir{ 0.0f, 0.0f, 1.0f };
+	float mPad4;
 };
 
 struct Light
@@ -335,10 +344,17 @@ DescriptorSet* pDescriptorSetSkybox[2] = { NULL };
 
 const static uint32_t gTerrainResolution = 512;
 float gTerrainAlbedoMultiplier = 1.0f;
-Shader*        pShaderTerrain = nullptr;
-Pipeline*      pPipelineTerrain = nullptr;
-RootSignature* pRootSigTerrain = nullptr;
-DescriptorSet* pDescriptorSetTerrain[2] = { nullptr };
+float gSunYaw = 0.0f;
+float gSunPitch = 0.15f;
+Shader* pTerrainShader = nullptr;
+Pipeline* pTerrainPipeline = nullptr;
+RootSignature* pTerrainRootSig = nullptr;
+DescriptorSet* pTerrainDescriptorSet[2] = { nullptr };
+
+Shader* pSkyShader = nullptr;
+Pipeline* pSkyPipeline = nullptr;
+RootSignature* pSkyRootSig = nullptr;
+DescriptorSet* pSkyDescriptorSet[2] = { nullptr };
 
 RenderTarget* pTransmittanceLUT = nullptr;
 Shader* pTransmittanceShaderCompute = nullptr;
@@ -401,7 +417,7 @@ UniformDataAtmosphere gUniformDataAtmosphere;
 Buffer* pBufferUniformAtmosphere[gImageCount] = { nullptr };
 
 Buffer*                pBufferUniformExtendedCamera[gImageCount] = { NULL };
-UniformExtendedCamData gUniformDataExtenedCamera;
+UniformExtendedCamData gUniformDataExtendedCamera;
 
 Buffer* pBufferUniformCameraSky[gImageCount] = { NULL };
 
@@ -601,14 +617,28 @@ class Sky : public IApp
 			ShaderLoadDesc shaderDescTerrain = {};
 			shaderDescTerrain.mStages[0] = { "terrain.vert", nullptr, 0 };
 			shaderDescTerrain.mStages[1] = { "terrain.frag", nullptr, 0 };
-			addShader(pRenderer, &shaderDescTerrain, &pShaderTerrain);
+			addShader(pRenderer, &shaderDescTerrain, &pTerrainShader);
 			
 			const char* pSamplerNameTerrain = "samplerLinearClamp";
-			RootSignatureDesc rootDescTerrain = { &pShaderTerrain, 1 };
+			RootSignatureDesc rootDescTerrain = { &pTerrainShader, 1 };
 			rootDescTerrain.mStaticSamplerCount = 1;
 			rootDescTerrain.ppStaticSamplerNames = &pSamplerNameTerrain;
 			rootDescTerrain.ppStaticSamplers = &pSamplerLinearClamp;
-			addRootSignature(pRenderer, &rootDescTerrain, &pRootSigTerrain);
+			addRootSignature(pRenderer, &rootDescTerrain, &pTerrainRootSig);
+		}
+
+		{
+			ShaderLoadDesc shaderDescSky = {};
+			shaderDescSky.mStages[0] = { "fullscreenTriangle.vert", nullptr, 0 };
+			shaderDescSky.mStages[1] = { "sky.frag", nullptr, 0 };
+			addShader(pRenderer, &shaderDescSky, &pSkyShader);
+
+			const char* pSamplerNameSky = "samplerLinearClamp";
+			RootSignatureDesc rootDescSky = { &pSkyShader, 1 };
+			rootDescSky.mStaticSamplerCount = 1;
+			rootDescSky.ppStaticSamplerNames = &pSamplerNameSky;
+			rootDescSky.ppStaticSamplers = &pSamplerLinearClamp;
+			addRootSignature(pRenderer, &rootDescSky, &pSkyRootSig);
 		}
 
 		{
@@ -657,10 +687,17 @@ class Sky : public IApp
 		addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetSkybox[1]);
 		{
 			// terrain
-			DescriptorSetDesc setDesc = { pRootSigTerrain, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
-			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetTerrain[0]);
-			setDesc = { pRootSigTerrain, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
-			addDescriptorSet(pRenderer, &setDesc, &pDescriptorSetTerrain[1]);
+			DescriptorSetDesc setDesc = { pTerrainRootSig, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pTerrainDescriptorSet[0]);
+			setDesc = { pTerrainRootSig, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc, &pTerrainDescriptorSet[1]);
+		}
+		{
+			// sky
+			DescriptorSetDesc setDesc = { pSkyRootSig, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pSkyDescriptorSet[0]);
+			setDesc = { pSkyRootSig, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc, &pSkyDescriptorSet[1]);
 		}
 		{
 			// transmittance
@@ -914,12 +951,10 @@ class Sky : public IApp
 #if !defined(TARGET_IOS)
 		pGui->AddWidget(OneLineCheckboxWidget("Toggle VSync", &gToggleVSync, 0xFFFFFFFF));
 #endif
-
-		DropdownWidget ddTestScripts("Test Scripts", &gCurrentScriptIndex, gTestScripts, gScriptIndexes, sizeof(gTestScripts) / sizeof(gTestScripts[0]));
-		ButtonWidget bRunScript("Run");
-		bRunScript.pOnEdited = RunScript;
-		pGui->AddWidget(ddTestScripts);
-		pGui->AddWidget(bRunScript);
+		pGui->AddWidget(SliderFloatWidget("Sun pitch", &gSunPitch, -1.0f, 1.0f, 1.0f / 360.0f));
+		pGui->AddWidget(SliderFloatWidget("Sun yaw", &gSunYaw, -1.0f, 1.0f, 1.0f / 360.0f));
+		pGui->AddWidget(SliderFloat3Widget("SunDir", &gUniformDataAtmosphere.mSunDir, float3(-1.0f, -1.0f, -1.0f), float3(1.0f, 1.0f, 1.0f)));
+		pGui->AddWidget(SliderFloat3Widget("ViewDir", &gUniformDataAtmosphere.mViewDir, float3(-1.0f, -1.0f, -1.0f), float3(1.0f, 1.0f, 1.0f)));
 
 		GuiDesc guiDesc2 = {};
 		guiDesc2.mStartPosition = vec2(mSettings.mWidth * 0.15f, mSettings.mHeight * 0.25f);
@@ -929,8 +964,8 @@ class Sky : public IApp
 		pLoadingGui->AddWidget(ProgressBar);
 
 		CameraMotionParameters camParameters{ 100.0f, 150.0f, 300.0f };
-		vec3                   camPos{ 20.0f, -2.0f, 0.9f };
-		vec3                   lookAt{ 0.0f, -2.0f, 0.9f };
+		vec3                   camPos{ 20.0f, 5.0f, 0.9f };
+		vec3                   lookAt{ 20.0f, 5.0f, 1.0f };
 
 		pCameraController = createFpsCameraController(camPos, lookAt);
 
@@ -1060,8 +1095,10 @@ class Sky : public IApp
 
 		removeDescriptorSet(pRenderer, pDescriptorSetSkybox[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetSkybox[1]);
-		removeDescriptorSet(pRenderer, pDescriptorSetTerrain[0]);
-		removeDescriptorSet(pRenderer, pDescriptorSetTerrain[1]);
+		removeDescriptorSet(pRenderer, pTerrainDescriptorSet[0]);
+		removeDescriptorSet(pRenderer, pTerrainDescriptorSet[1]);
+		removeDescriptorSet(pRenderer, pSkyDescriptorSet[0]);
+		removeDescriptorSet(pRenderer, pSkyDescriptorSet[1]);
 		removeDescriptorSet(pRenderer, pTransmittanceDescriptorSetCompute[0]);
 		removeDescriptorSet(pRenderer, pTransmittanceDescriptorSetCompute[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[0]);
@@ -1113,7 +1150,8 @@ class Sky : public IApp
 		removeShader(pRenderer, pPPR_HolePatchingShader);
 		removeShader(pRenderer, pShaderBRDF);
 		removeShader(pRenderer, pSkyboxShader);
-		removeShader(pRenderer, pShaderTerrain);
+		removeShader(pRenderer, pTerrainShader);
+		removeShader(pRenderer, pSkyShader);
 		removeShader(pRenderer, pTransmittanceShaderCompute);
 		removeShader(pRenderer, pShaderGbuffers);
 
@@ -1124,7 +1162,8 @@ class Sky : public IApp
 		removeRootSignature(pRenderer, pPPR_HolePatchingRootSignature);
 		removeRootSignature(pRenderer, pRootSigBRDF);
 		removeRootSignature(pRenderer, pSkyboxRootSignature);
-		removeRootSignature(pRenderer, pRootSigTerrain);
+		removeRootSignature(pRenderer, pTerrainRootSig);
+		removeRootSignature(pRenderer, pSkyRootSig);
 		removeRootSignature(pRenderer, pTransmittanceRootSigCompute);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
 
@@ -1574,11 +1613,31 @@ class Sky : public IApp
 			deferredPassPipelineSettings.mSampleQuality = pRenderTargetDeferredPass[0][0]->mSampleQuality;
 
 			deferredPassPipelineSettings.mDepthStencilFormat = pDepthBuffer->mFormat;
-			deferredPassPipelineSettings.pRootSignature = pRootSigTerrain;
-			deferredPassPipelineSettings.pShaderProgram = pShaderTerrain;
+			deferredPassPipelineSettings.pRootSignature = pTerrainRootSig;
+			deferredPassPipelineSettings.pShaderProgram = pTerrainShader;
 			deferredPassPipelineSettings.pVertexLayout = nullptr;
 			deferredPassPipelineSettings.pRasterizerState = &rasterizerStateDesc;
-			addPipeline(pRenderer, &desc, &pPipelineTerrain);
+			addPipeline(pRenderer, &desc, &pTerrainPipeline);
+		}
+
+		//layout and pipeline for sky draw
+		{
+			desc.mGraphicsDesc = {};
+			GraphicsPipelineDesc& pipelineSettings = desc.mGraphicsDesc;
+			pipelineSettings.mPrimitiveTopo = PRIMITIVE_TOPO_TRI_LIST;
+			pipelineSettings.mRenderTargetCount = 1;
+			pipelineSettings.pDepthState = nullptr;
+
+			pipelineSettings.pColorFormats = &pSceneBuffer->mFormat;
+			pipelineSettings.mSampleCount = pSceneBuffer->mSampleCount;
+			pipelineSettings.mSampleQuality = pSceneBuffer->mSampleQuality;
+
+			pipelineSettings.mDepthStencilFormat = TinyImageFormat_UNDEFINED;
+			pipelineSettings.pRootSignature = pSkyRootSig;
+			pipelineSettings.pShaderProgram = pSkyShader;
+			pipelineSettings.pVertexLayout = nullptr;
+			pipelineSettings.pRasterizerState = &rasterizerStateDesc;
+			addPipeline(pRenderer, &desc, &pSkyPipeline);
 		}
 
 		{
@@ -1688,7 +1747,8 @@ class Sky : public IApp
 
 		removePipeline(pRenderer, pPipelineBRDF);
 		removePipeline(pRenderer, pSkyboxPipeline);
-		removePipeline(pRenderer, pPipelineTerrain);
+		removePipeline(pRenderer, pTerrainPipeline);
+		removePipeline(pRenderer, pSkyPipeline);
 		removePipeline(pRenderer, pTransmittancePipelineCompute);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
@@ -1802,16 +1862,28 @@ class Sky : public IApp
 			gUniformDataAtmosphere.mDensityAbsorption[0] = { 0.0f, 0.0f, 1.0f / 15.0f, -2.0f / 3.0f };
 			gUniformDataAtmosphere.mDensityAbsorption[1] = { 0.0f, 0.0f, -1.0f / 15.0f, 8.0f / 3.0f };
 			gUniformDataAtmosphere.mLayerWidthAbsorption = { 25.0f, 0.0f };
+
+			//sun
+			float sunyaw = gSunYaw * PI;
+			float sunpitch = gSunPitch * PI;
+			Matrix4 marSunRot = Matrix4::rotationXY(sunpitch, -sunyaw);
+			Vector3 sundir = normalize(marSunRot.getRow(2).getXYZ());
+			gUniformDataAtmosphere.mSunDir = { sundir.getX(), sundir.getY(), sundir.getZ() };
+
+			Vector4 viewdir = pCameraController->getViewMatrix() * vec4(0.0f, 0.0f, 1.0f, 0.0f);
+			gUniformDataAtmosphere.mViewDir = { viewdir.getX(), viewdir.getY(), viewdir.getZ() };
 		}
 
 		//data uniforms
-		gUniformDataExtenedCamera.mCameraWorldPos = vec4(pCameraController->getViewPosition(), 1.0);
-		gUniformDataExtenedCamera.mViewMat = pCameraController->getViewMatrix();
-		gUniformDataExtenedCamera.mProjMat = projMat;
-		gUniformDataExtenedCamera.mViewProjMat = ViewProjMat;
-		gUniformDataExtenedCamera.mInvViewProjMat = inverse(ViewProjMat);
-		gUniformDataExtenedCamera.mViewPortSize =
-			vec4(static_cast<float>(mSettings.mWidth), static_cast<float>(mSettings.mHeight), 0.0, 0.0);
+		gUniformDataExtendedCamera.mCameraWorldPos = vec4(pCameraController->getViewPosition(), 1.0);
+		gUniformDataExtendedCamera.mViewMat = pCameraController->getViewMatrix();
+		gUniformDataExtendedCamera.mProjMat = projMat;
+		gUniformDataExtendedCamera.mViewProjMat = ViewProjMat;
+		gUniformDataExtendedCamera.mInvViewProjMat = inverse(ViewProjMat);
+		gUniformDataExtendedCamera.mViewPortSize = vec4(static_cast<float>(mSettings.mWidth), static_cast<float>(mSettings.mHeight), 1.0f / static_cast<float>(mSettings.mWidth), 1.0f / static_cast<float>(mSettings.mHeight));
+
+		gUniformDataExtendedCamera.mProjectViewInv = inverse(gUniformDataCamera.mProjectView);
+		gUniformDataExtendedCamera.mPrevProjectViewInv = inverse(gUniformDataCamera.mPrevProjectView);
 
 		mat4 basicMat;
 		basicMat[0] = vec4(1.0, 0.0, 0.0, 0.0);     //tan
@@ -1878,7 +1950,7 @@ class Sky : public IApp
 
 		BufferUpdateDesc CbvExtendedCamera = { pBufferUniformExtendedCamera[gFrameIndex] };
 		beginUpdateResource(&CbvExtendedCamera);
-		*(UniformExtendedCamData*)CbvExtendedCamera.pMappedData = gUniformDataExtenedCamera;
+		*(UniformExtendedCamData*)CbvExtendedCamera.pMappedData = gUniformDataExtendedCamera;
 		endUpdateResource(&CbvExtendedCamera, NULL);
 
 		// Draw G-buffers
@@ -1971,13 +2043,14 @@ class Sky : public IApp
 			{
 				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Render terrain");
 
-				cmdBindPipeline(cmd, pPipelineTerrain);
-				cmdBindDescriptorSet(cmd, 0, pDescriptorSetTerrain[0]);
-				cmdBindDescriptorSet(cmd, gFrameIndex, pDescriptorSetTerrain[1]);
+				cmdBindPipeline(cmd, pTerrainPipeline);
+				cmdBindDescriptorSet(cmd, 0, pTerrainDescriptorSet[0]);
+				cmdBindDescriptorSet(cmd, gFrameIndex, pTerrainDescriptorSet[1]);
 				cmdDrawInstanced(cmd, 6, 0, gTerrainResolution * gTerrainResolution, 0);
 
 				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
 			}
+
 			/*
 			Geometry& sponzaMesh = *gModels[SPONZA_MODEL];
 
@@ -2123,6 +2196,18 @@ class Sky : public IApp
 		cmdDraw(cmd, 3, 0);
 		//#endif
 		cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+
+		// Draw the sky
+		{
+			cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "Render sky");
+
+			cmdBindPipeline(cmd, pSkyPipeline);
+			cmdBindDescriptorSet(cmd, 0, pSkyDescriptorSet[0]);
+			cmdBindDescriptorSet(cmd, gFrameIndex, pSkyDescriptorSet[1]);
+			cmdDraw(cmd, 3, 0);
+
+			cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+		}
 
 		cmdBindRenderTargets(cmd, 0, NULL, NULL, NULL, NULL, NULL, -1, -1);
 
@@ -2279,14 +2364,14 @@ class Sky : public IApp
 			DescriptorData terrainParams[2] = {};
 			terrainParams[0].pName = "terrainHeightTex";
 			terrainParams[0].ppTextures = &pTerrainTexture;
-			updateDescriptorSet(pRenderer, 0, pDescriptorSetTerrain[0], 1, terrainParams);
+			updateDescriptorSet(pRenderer, 0, pTerrainDescriptorSet[0], 1, terrainParams);
 			for (uint32_t i = 0; i < gImageCount; ++i)
 			{
 				terrainParams[0].pName = "cbCamera";
 				terrainParams[0].ppBuffers = &pBufferUniformCameraTerrain[i];
 				terrainParams[1].pName = "cbTerrain";
 				terrainParams[1].ppBuffers = &pBufferUniformTerrain[i];
-				updateDescriptorSet(pRenderer, i, pDescriptorSetTerrain[1], 2, terrainParams);
+				updateDescriptorSet(pRenderer, i, pTerrainDescriptorSet[1], 2, terrainParams);
 			}
 		}
 		else
@@ -2302,6 +2387,22 @@ class Sky : public IApp
 					pTransLUTParams[0].pName = "cbAtmosphere";
 					pTransLUTParams[0].ppBuffers = &pBufferUniformAtmosphere[i];
 					updateDescriptorSet(pRenderer, i, pTransmittanceDescriptorSetCompute[1], 1, pTransLUTParams);
+				}
+			}
+			// sky
+			{
+				DescriptorData pSkyParams[2] = {};
+				pSkyParams[0].pName = "TransmittanceLUT";
+				pSkyParams[0].ppTextures = &pTransmittanceLUT->pTexture;
+				updateDescriptorSet(pRenderer, 0, pSkyDescriptorSet[0], 1, pSkyParams);
+				for (uint32_t i = 0; i < gImageCount; ++i)
+				{
+					pSkyParams[0].pName = "cbCameraExtended";
+					pSkyParams[0].ppBuffers = &pBufferUniformExtendedCamera[i];
+
+					pSkyParams[1].pName = "cbAtmosphere";
+					pSkyParams[1].ppBuffers = &pBufferUniformAtmosphere[i];
+					updateDescriptorSet(pRenderer, i, pSkyDescriptorSet[1], 2, pSkyParams);
 				}
 			}
 		}

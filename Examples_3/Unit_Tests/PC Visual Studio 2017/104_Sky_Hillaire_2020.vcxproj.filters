@@ -107,5 +107,11 @@
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\transmittanceLUT.comp">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\fullscreenTriangle.vert">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\sky.frag">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
   </ItemGroup>
 </Project>
