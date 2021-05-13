@@ -116,25 +116,34 @@ struct UniformDataAtmosphere
 	float mPhaseFunctionGMie;
 	
 	float3 mExtinctionMie;
-	float mTransmittanceWidthInv;
+	float mSunAngularRadius;
 	
 	float3 mExtinctionAbsorption;
 	float mTransmittanceHeightInv;
 
 	float4 mDensityRayleigh[2];
+	
 	float2 mLayerWidthRayleigh;
-	float2 mPad0;
+	float2 mTransmittanceSizeInv;
+	
 	float4 mDensityMie[2];
+	
 	float2 mLayerWidthMie;
-	float2 mPad1;
+	float2 mIrradienceSizeInv;
+	
 	float4 mDensityAbsorption[2];
+	
 	float2 mLayerWidthAbsorption;
 	float2 mPad2;
 
 	float3 mSunDir{ 0.0f, 1.0f, 0.0f };
 	float mPad3;
+	
 	float3 mViewDir{ 0.0f, 0.0f, 1.0f };
 	float mPad4;
+
+	float3 mSolarIrradience;
+	float mPad5;
 };
 
 struct Light
@@ -361,6 +370,13 @@ Shader* pTransmittanceShaderCompute = nullptr;
 Pipeline* pTransmittancePipelineCompute = nullptr;
 RootSignature* pTransmittanceRootSigCompute = nullptr;
 DescriptorSet* pTransmittanceDescriptorSetCompute[2] = { nullptr };
+
+RenderTarget* pIrradienceLUT = nullptr;
+RenderTarget* pIrradienceDeltaLUT = nullptr;
+Shader* pIrradienceShaderCompute = nullptr;
+Pipeline* pIrradiencePipelineCompute = nullptr;
+RootSignature* pIrradienceRootSigCompute = nullptr;
+DescriptorSet* pIrradienceDescriptorSetCompute[2] = { nullptr };
 
 Shader*        pPPR_HolePatchingShader = NULL;
 RootSignature* pPPR_HolePatchingRootSignature = NULL;
@@ -649,6 +665,14 @@ class Sky : public IApp
 			rootDescTransLUT.mStaticSamplerCount = 0;
 			addRootSignature(pRenderer, &rootDescTransLUT, &pTransmittanceRootSigCompute);
 		}
+		{
+			ShaderLoadDesc shaderDescIrradLUT = {};
+			shaderDescIrradLUT.mStages[0] = { "irradienceLUT.comp", nullptr, 0 };
+			addShader(pRenderer, &shaderDescIrradLUT, &pIrradienceShaderCompute);
+			RootSignatureDesc rootDescIrradLUT = { &pIrradienceShaderCompute, 1 };
+			rootDescIrradLUT.mStaticSamplerCount = 0;
+			addRootSignature(pRenderer, &rootDescIrradLUT, &pIrradienceRootSigCompute);
+		}
 
 		//BRDF
 		ShaderLoadDesc brdfRenderSceneShaderDesc = {};
@@ -705,6 +729,13 @@ class Sky : public IApp
 			addDescriptorSet(pRenderer, &setDesc, &pTransmittanceDescriptorSetCompute[0]);
 			setDesc = { pTransmittanceRootSigCompute, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
 			addDescriptorSet(pRenderer, &setDesc, &pTransmittanceDescriptorSetCompute[1]);
+		}
+		{
+			// transmittance
+			DescriptorSetDesc setDesc = { pIrradienceRootSigCompute, DESCRIPTOR_UPDATE_FREQ_NONE, 1 };
+			addDescriptorSet(pRenderer, &setDesc, &pIrradienceDescriptorSetCompute[0]);
+			setDesc = { pIrradienceRootSigCompute, DESCRIPTOR_UPDATE_FREQ_PER_FRAME, gImageCount };
+			addDescriptorSet(pRenderer, &setDesc, &pIrradienceDescriptorSetCompute[1]);
 		}
 		// GBuffer
 		if (gUseTexturesFallback)
@@ -1101,6 +1132,8 @@ class Sky : public IApp
 		removeDescriptorSet(pRenderer, pSkyDescriptorSet[1]);
 		removeDescriptorSet(pRenderer, pTransmittanceDescriptorSetCompute[0]);
 		removeDescriptorSet(pRenderer, pTransmittanceDescriptorSetCompute[1]);
+		removeDescriptorSet(pRenderer, pIrradienceDescriptorSetCompute[0]);
+		removeDescriptorSet(pRenderer, pIrradienceDescriptorSetCompute[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[0]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[1]);
 		removeDescriptorSet(pRenderer, pDescriptorSetGbuffers[2]);
@@ -1153,6 +1186,7 @@ class Sky : public IApp
 		removeShader(pRenderer, pTerrainShader);
 		removeShader(pRenderer, pSkyShader);
 		removeShader(pRenderer, pTransmittanceShaderCompute);
+		removeShader(pRenderer, pIrradienceShaderCompute);
 		removeShader(pRenderer, pShaderGbuffers);
 
 		removeSampler(pRenderer, pSamplerBilinear);
@@ -1165,6 +1199,7 @@ class Sky : public IApp
 		removeRootSignature(pRenderer, pTerrainRootSig);
 		removeRootSignature(pRenderer, pSkyRootSig);
 		removeRootSignature(pRenderer, pTransmittanceRootSigCompute);
+		removeRootSignature(pRenderer, pIrradienceRootSigCompute);
 		removeRootSignature(pRenderer, pRootSigGbuffers);
 
 		// Remove commands and command pool&
@@ -1558,6 +1593,9 @@ class Sky : public IApp
 		if (!addTransmittanceBuffer())
 			return false;
 
+		if (!addIrradienceBuffer())
+			return false;
+
 		if (!gAppUI.Load(pSwapChain->ppRenderTargets))
 			return false;
 
@@ -1648,6 +1686,15 @@ class Sky : public IApp
 			pipelineSettings.pShaderProgram = pTransmittanceShaderCompute;
 			pipelineSettings.pRootSignature = pTransmittanceRootSigCompute;
 			addPipeline(pRenderer, &desc_compute, &pTransmittancePipelineCompute);
+		}
+		{
+			// pipeline for irradience compute
+			PipelineDesc desc_compute = {};
+			desc_compute.mType = PIPELINE_TYPE_COMPUTE;
+			ComputePipelineDesc& pipelineSettings = desc_compute.mComputeDesc;
+			pipelineSettings.pShaderProgram = pIrradienceShaderCompute;
+			pipelineSettings.pRootSignature = pIrradienceRootSigCompute;
+			addPipeline(pRenderer, &desc_compute, &pIrradiencePipelineCompute);
 		}
 
 		//layout and pipeline for skybox draw
@@ -1750,10 +1797,13 @@ class Sky : public IApp
 		removePipeline(pRenderer, pTerrainPipeline);
 		removePipeline(pRenderer, pSkyPipeline);
 		removePipeline(pRenderer, pTransmittancePipelineCompute);
+		removePipeline(pRenderer, pIrradiencePipelineCompute);
 		removePipeline(pRenderer, pPPR_HolePatchingPipeline);
 		removePipeline(pRenderer, pPipelineGbuffers);
 
 		removeRenderTarget(pRenderer, pTransmittanceLUT);
+		removeRenderTarget(pRenderer, pIrradienceLUT);
+		removeRenderTarget(pRenderer, pIrradienceDeltaLUT);
 		removeRenderTarget(pRenderer, pDepthBuffer);
 		removeRenderTarget(pRenderer, pSceneBuffer);
 
@@ -1841,9 +1891,9 @@ class Sky : public IApp
 			
 			gUniformDataAtmosphere.mScatteringMie = { 0.003996f, 0.003996f, 0.003996f };
 			gUniformDataAtmosphere.mPhaseFunctionGMie = 0.8f;
-
+			
 			gUniformDataAtmosphere.mExtinctionMie = { 0.00444f, 0.00444f, 0.00444f };
-			gUniformDataAtmosphere.mTransmittanceWidthInv = 1.0f / float(pTransmittanceLUT->mWidth);
+			gUniformDataAtmosphere.mSunAngularRadius = 0.00467f; //rad
 
 			gUniformDataAtmosphere.mExtinctionAbsorption = { 0.00065f, 0.00188f, 0.00008f };
 			gUniformDataAtmosphere.mTransmittanceHeightInv = 1.0f / float(pTransmittanceLUT->mHeight);
@@ -1852,16 +1902,19 @@ class Sky : public IApp
 			gUniformDataAtmosphere.mDensityRayleigh[0] = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gUniformDataAtmosphere.mDensityRayleigh[1] = { 1.0f, -1.0f / EarthRayleighScaleHeight, 0.0f, 0.0f };
 			gUniformDataAtmosphere.mLayerWidthRayleigh = { 0.0f, 0.0f };
+			gUniformDataAtmosphere.mTransmittanceSizeInv = { 1.0f / float(pTransmittanceLUT->mWidth), 1.0f / float(pTransmittanceLUT->mHeight) };
 			
 			//mie
 			gUniformDataAtmosphere.mDensityMie[0] = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gUniformDataAtmosphere.mDensityMie[1] = { 1.0f, -1.0f / EarthMieScaleHeight, 0.0f, 0.0f };
 			gUniformDataAtmosphere.mLayerWidthMie = { 0.0f, 0.0f };
+			gUniformDataAtmosphere.mIrradienceSizeInv = { 1.0f / float(pIrradienceLUT->mWidth), 1.0f / float(pIrradienceLUT->mHeight) };
 
 			//ozone
 			gUniformDataAtmosphere.mDensityAbsorption[0] = { 0.0f, 0.0f, 1.0f / 15.0f, -2.0f / 3.0f };
 			gUniformDataAtmosphere.mDensityAbsorption[1] = { 0.0f, 0.0f, -1.0f / 15.0f, 8.0f / 3.0f };
 			gUniformDataAtmosphere.mLayerWidthAbsorption = { 25.0f, 0.0f };
+			gUniformDataAtmosphere.mPad2 = { 0.0f, 0.0f };
 
 			//sun
 			float sunyaw = gSunYaw * PI;
@@ -1869,9 +1922,14 @@ class Sky : public IApp
 			Matrix4 marSunRot = Matrix4::rotationXY(sunpitch, -sunyaw);
 			Vector3 sundir = normalize(marSunRot.getRow(2).getXYZ());
 			gUniformDataAtmosphere.mSunDir = { sundir.getX(), sundir.getY(), sundir.getZ() };
+			gUniformDataAtmosphere.mPad3 = 0.0f;
 
 			Vector4 viewdir = pCameraController->getViewMatrix() * vec4(0.0f, 0.0f, 1.0f, 0.0f);
 			gUniformDataAtmosphere.mViewDir = { viewdir.getX(), viewdir.getY(), viewdir.getZ() };
+			gUniformDataAtmosphere.mPad4 = 0.0f;
+
+			gUniformDataAtmosphere.mSolarIrradience = { 1.0f, 1.0f, 1.0f };
+			gUniformDataAtmosphere.mPad5 = 0.0f;
 		}
 
 		//data uniforms
@@ -1958,19 +2016,41 @@ class Sky : public IApp
 		beginCmd(cmd);
 
 		cmdBeginGpuFrameProfile(cmd, gGpuProfileToken);
-		
-		// Draw the terrain
 		{
-			cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TransmittanceLUT");
+			TextureBarrier uavBarriers[3] = {};
+			uavBarriers[0] = { pTransmittanceLUT->pTexture, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+			cmdResourceBarrier(cmd, 0, nullptr, 1, uavBarriers, 0, nullptr);
+			// eval transmittance lut
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "TransmittanceLUT");
 
-			cmdBindPipeline(cmd, pTransmittancePipelineCompute);
-			cmdBindDescriptorSet(cmd, 0, pTransmittanceDescriptorSetCompute[0]);
-			cmdBindDescriptorSet(cmd, gFrameIndex, pTransmittanceDescriptorSetCompute[1]);
-			cmdDispatch(cmd, pTransmittanceLUT->mWidth >> 5u, pTransmittanceLUT->mHeight >> 5u, 1);
+				cmdBindPipeline(cmd, pTransmittancePipelineCompute);
+				cmdBindDescriptorSet(cmd, 0, pTransmittanceDescriptorSetCompute[0]);
+				cmdBindDescriptorSet(cmd, gFrameIndex, pTransmittanceDescriptorSetCompute[1]);
+				cmdDispatch(cmd, pTransmittanceLUT->mWidth >> 5u, pTransmittanceLUT->mHeight >> 5u, 1);
 
-			cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
+			uavBarriers[0] = { pTransmittanceLUT->pTexture, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+			uavBarriers[1] = { pIrradienceLUT->pTexture, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+			uavBarriers[2] = { pIrradienceDeltaLUT->pTexture, RESOURCE_STATE_SHADER_RESOURCE, RESOURCE_STATE_UNORDERED_ACCESS };
+			cmdResourceBarrier(cmd, 0, nullptr, 3, uavBarriers, 0, nullptr);
+			// eval irradience lut
+			{
+				cmdBeginGpuTimestampQuery(cmd, gGpuProfileToken, "IrradienceLUT");
+
+				cmdBindPipeline(cmd, pIrradiencePipelineCompute);
+				cmdBindDescriptorSet(cmd, 0, pIrradienceDescriptorSetCompute[0]);
+				cmdBindDescriptorSet(cmd, gFrameIndex, pIrradienceDescriptorSetCompute[1]);
+				cmdDispatch(cmd, 1, 1, 1);
+
+				cmdEndGpuTimestampQuery(cmd, gGpuProfileToken);
+			}
+			uavBarriers[0] = { pIrradienceLUT->pTexture, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+			uavBarriers[1] = { pIrradienceDeltaLUT->pTexture, RESOURCE_STATE_UNORDERED_ACCESS, RESOURCE_STATE_SHADER_RESOURCE };
+			cmdResourceBarrier(cmd, 0, nullptr, 2, uavBarriers, 0, nullptr);
+
 		}
-
 		//Clear G-buffers and Depth buffer
 		LoadActionsDesc loadActions = {};
 		for (uint32_t i = 0; i < DEFERRED_RT_COUNT; ++i)
@@ -2389,6 +2469,23 @@ class Sky : public IApp
 					updateDescriptorSet(pRenderer, i, pTransmittanceDescriptorSetCompute[1], 1, pTransLUTParams);
 				}
 			}
+			//irradience
+			{
+				DescriptorData pIrradLUTParams[3] = {};
+				pIrradLUTParams[0].pName = "TransmittanceLUT";
+				pIrradLUTParams[0].ppTextures = &pTransmittanceLUT->pTexture;
+				pIrradLUTParams[1].pName = "IrradienceLUT";
+				pIrradLUTParams[1].ppTextures = &pIrradienceLUT->pTexture;
+				pIrradLUTParams[2].pName = "IrradienceDeltaLUT";
+				pIrradLUTParams[2].ppTextures = &pIrradienceDeltaLUT->pTexture;
+				updateDescriptorSet(pRenderer, 0, pIrradienceDescriptorSetCompute[0], 3, pIrradLUTParams);
+				for (uint32_t i = 0; i < gImageCount; ++i)
+				{
+					pIrradLUTParams[0].pName = "cbAtmosphere";
+					pIrradLUTParams[0].ppBuffers = &pBufferUniformAtmosphere[i];
+					updateDescriptorSet(pRenderer, i, pIrradienceDescriptorSetCompute[1], 1, pIrradLUTParams);
+				}
+			}
 			// sky
 			{
 				DescriptorData pSkyParams[2] = {};
@@ -2397,11 +2494,12 @@ class Sky : public IApp
 				updateDescriptorSet(pRenderer, 0, pSkyDescriptorSet[0], 1, pSkyParams);
 				for (uint32_t i = 0; i < gImageCount; ++i)
 				{
-					pSkyParams[0].pName = "cbCameraExtended";
-					pSkyParams[0].ppBuffers = &pBufferUniformExtendedCamera[i];
+					pSkyParams[0].pName = "cbAtmosphere";
+					pSkyParams[0].ppBuffers = &pBufferUniformAtmosphere[i];
+					
+					pSkyParams[1].pName = "cbCameraExtended";
+					pSkyParams[1].ppBuffers = &pBufferUniformExtendedCamera[i];
 
-					pSkyParams[1].pName = "cbAtmosphere";
-					pSkyParams[1].ppBuffers = &pBufferUniformAtmosphere[i];
 					updateDescriptorSet(pRenderer, i, pSkyDescriptorSet[1], 2, pSkyParams);
 				}
 			}
@@ -2550,6 +2648,27 @@ class Sky : public IApp
 		addRenderTarget(pRenderer, &transDesc, &pTransmittanceLUT);
 
 		return nullptr != pTransmittanceLUT;
+	}
+
+	bool addIrradienceBuffer()
+	{
+		RenderTargetDesc irradDesc = {};
+		irradDesc.mDescriptors = DESCRIPTOR_TYPE_TEXTURE | DESCRIPTOR_TYPE_RW_TEXTURE;
+		irradDesc.mFormat = TinyImageFormat_R16G16B16A16_SFLOAT;
+		irradDesc.mStartState = RESOURCE_STATE_SHADER_RESOURCE;
+		irradDesc.mWidth = 64;
+		irradDesc.mHeight = 16;
+		irradDesc.mDepth = 1;
+		irradDesc.mArraySize = 1;
+		irradDesc.mSampleCount = SAMPLE_COUNT_1;
+		irradDesc.mSampleQuality = 0;
+		irradDesc.pName = "IrradienceLUT";
+		addRenderTarget(pRenderer, &irradDesc, &pIrradienceLUT);
+
+		irradDesc.pName = "IrradienceDeltaLUT";
+		addRenderTarget(pRenderer, &irradDesc, &pIrradienceDeltaLUT);
+
+		return nullptr != pTransmittanceLUT && nullptr != pIrradienceDeltaLUT;;
 	}
 };
 

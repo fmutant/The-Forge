@@ -15,32 +15,8 @@
     <Filter Include="Shaders\D3D12">
       <UniqueIdentifier>{3d11cf08-e172-4420-927c-59e2f76fd0b9}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Shaders\Vulkan">
-      <UniqueIdentifier>{808da4aa-bf2f-4605-ad80-5bcf837bffc2}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\BRDFIntegration.comp">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\computeIrradianceMap.comp">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\computeSpecularMap.comp">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\panoToCube.comp">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\renderSceneBRDF.vert">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\skybox.frag">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\skybox.vert">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\BRDFIntegration.comp">
       <Filter>Shaders\D3D12</Filter>
     </None>
@@ -65,15 +41,6 @@
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\skybox.vert">
       <Filter>Shaders\D3D12</Filter>
     </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\renderSceneBRDF.frag">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\fillGbuffers.frag">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\fillGbuffers.vert">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\fillGbuffers.frag">
       <Filter>Shaders\D3D12</Filter>
     </None>
@@ -85,12 +52,6 @@
     </None>
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\generateMips.comp">
       <Filter>Shaders\D3D12</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\copyDepth.comp">
-      <Filter>Shaders\Vulkan</Filter>
-    </None>
-    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\Vulkan\generateMips.comp">
-      <Filter>Shaders\Vulkan</Filter>
     </None>
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\PPR_Holepatching.frag">
       <Filter>Shaders\D3D12</Filter>
@@ -113,5 +74,13 @@
     <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\sky.frag">
       <Filter>Shaders\D3D12</Filter>
     </None>
+    <None Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\irradienceLUT.comp">
+      <Filter>Shaders\D3D12</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\src\104_Sky_Hillaire_2020\Shaders\D3D12\atmosphereStructs.hlsl">
+      <Filter>Shaders\D3D12</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

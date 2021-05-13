@@ -1,7 +1,9 @@
+#include "atmosphereStructs.hlsl"
+
 Texture2D<min16float4> TransmittanceLUT : register(t0);
 SamplerState samplerLinearClamp : register(s0);
 
-cbuffer cbCameraExtended : register(b0, UPDATE_FREQ_PER_FRAME)
+cbuffer cbCameraExtended : register(b1, UPDATE_FREQ_PER_FRAME)
 {
 	float4x4 mViewMat;
 	float4x4 mProjMat;
@@ -13,41 +15,6 @@ cbuffer cbCameraExtended : register(b0, UPDATE_FREQ_PER_FRAME)
 
 	float4x4 mProjectViewInv;
 	float4x4 mPrevProjectViewInv;
-}
-
-cbuffer cbAtmosphere : register(b1, UPDATE_FREQ_PER_FRAME)
-{
-	float mRadiusBottom;
-	float mRadiusTop;
-	float mRadiusBottomSqr;
-	float mRadiusTopSqr;
-
-	float3 mScatteringRayleigh;
-	float mDistanceBound;
-	
-	float3 mScatteringMie;
-	float mPhaseFunctionGMie;
-	
-	float3 mExtinctionMie;
-	float mTransmittanceWidthInv;
-	
-	float3 mExtinctionAbsorption;
-	float mTransmittanceHeightInv;
-
-	float4 mDensityRayleigh[2];
-	float2 mLayerWidthRayleigh;
-	float2 mPad0;
-	float4 mDensityMie[2];
-	float2 mLayerWidthMie;
-	float2 mPad1;
-	float4 mDensityAbsorption[2];
-	float2 mLayerWidthAbsorption;
-	float2 mPad2;
-	
-	float3 mSunDir;
-	float mPad3;
-	float3 mViewDir;
-	float mPad4;
 }
 
 struct VSOutput {

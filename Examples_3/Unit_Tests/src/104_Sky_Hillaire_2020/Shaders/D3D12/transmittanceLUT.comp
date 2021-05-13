@@ -1,34 +1,6 @@
+#include "atmosphereStructs.hlsl"
+
 RWTexture2D<min16float4> TransmittanceLUT : register(u0);
-
-cbuffer cbAtmosphere : register(b0, UPDATE_FREQ_PER_FRAME)
-{
-	float mRadiusBottom;
-	float mRadiusTop;
-	float mRadiusBottomSqr;
-	float mRadiusTopSqr;
-
-	float3 mScatteringRayleigh;
-	float mDistanceBound;
-	
-	float3 mScatteringMie;
-	float mPhaseFunctionGMie;
-	
-	float3 mExtinctionMie;
-	float mTransmittanceWidthInv;
-	
-	float3 mExtinctionAbsorption;
-	float mTransmittanceHeightInv;
-
-	float4 mDensityRayleigh[2];
-	float2 mLayerWidthRayleigh;
-	float2 mPad0;
-	float4 mDensityMie[2];
-	float2 mLayerWidthMie;
-	float2 mPad1;
-	float4 mDensityAbsorption[2];
-	float2 mLayerWidthAbsorption;
-	float2 mPad2;
-}
 
 float GetProfileDensity(float2 widths, float4 profile0, float4 profile1, float altitude)
 {
@@ -134,7 +106,7 @@ void UV2TransmittanceLUTParams(float2 uv, out float view_zenith_cos, out float v
 [numthreads(32, 32, 1)]
 void main(uint3 tid : SV_DispatchThreadID, uint gidx : SV_GroupIndex, uint3 groupID : SV_GroupID)
 {
-	float2 tex_size_inv = float2(mTransmittanceWidthInv, mTransmittanceHeightInv);
+	float2 tex_size_inv = mTransmittanceSizeInv;
 	float2 half_pixel = float2(0.5f, 0.5f) * tex_size_inv;
 	
 	float2 uv = (float2(tid.xy) * tex_size_inv - half_pixel) / (float2(1.0f, 1.0f) - tex_size_inv);
