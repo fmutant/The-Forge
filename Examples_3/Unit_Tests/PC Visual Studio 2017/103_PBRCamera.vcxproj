@@ -45,32 +45,6 @@
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\renderSceneBRDF.vert" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\skybox.frag" />
     <None Include="..\src\103_PBRCamera\Shaders\D3D12\skybox.vert" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\BRDFIntegration.comp" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\computeIrradianceMap.comp" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\computeSpecularMap.comp" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\copyDepth.comp" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\fillGbuffers.frag" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\fillGbuffers.vert" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\generateMips.comp" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\panoToCube.comp" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\renderSceneBRDF.frag">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">
-      </ExcludedFromBuild>
-      <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">copy %0 "$(TargetDir)Recompile_$(ProjectName)_Shaders.bat"</Command>
-      <Message Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">Compiling %(Identity) to spirv</Message>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">%(FullPath)\..\Binary\%(Filename)%(Extension).bin</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">false</LinkObjects>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugDx|x64'">
-      </ExcludedFromBuild>
-      <Command Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">copy %0 "$(TargetDir)Recompile_$(ProjectName)_Shaders.bat"</Command>
-      <Message Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">Compiling %(Identity) to spirv</Message>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">%(FullPath)\..\Binary\%(Filename)%(Extension).bin</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">false</LinkObjects>
-    </None>
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\renderSceneBRDF.vert" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\skybox.frag" />
-    <None Include="..\src\103_PBRCamera\Shaders\Vulkan\skybox.vert" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{8F064C6B-66CB-4AB1-933E-76468C86EA6D}</ProjectGuid>

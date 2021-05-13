@@ -41,32 +41,6 @@
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\renderSceneBRDF.vert" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\skybox.frag" />
     <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\D3D12\skybox.vert" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\BRDFIntegration.comp" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\computeIrradianceMap.comp" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\computeSpecularMap.comp" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\copyDepth.comp" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\fillGbuffers.frag" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\fillGbuffers.vert" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\generateMips.comp" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\panoToCube.comp" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\renderSceneBRDF.frag">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">
-      </ExcludedFromBuild>
-      <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">copy %0 "$(TargetDir)Recompile_$(ProjectName)_Shaders.bat"</Command>
-      <Message Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">Compiling %(Identity) to spirv</Message>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">%(FullPath)\..\Binary\%(Filename)%(Extension).bin</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='ReleaseVk|x64'">false</LinkObjects>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugDx|x64'">
-      </ExcludedFromBuild>
-      <Command Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">copy %0 "$(TargetDir)Recompile_$(ProjectName)_Shaders.bat"</Command>
-      <Message Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">Compiling %(Identity) to spirv</Message>
-      <Outputs Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">%(FullPath)\..\Binary\%(Filename)%(Extension).bin</Outputs>
-      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='DebugVk|x64'">false</LinkObjects>
-    </None>
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\renderSceneBRDF.vert" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\skybox.frag" />
-    <None Include="..\src\101_MotionBlur_McGuire_2012\Shaders\Vulkan\skybox.vert" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\101_MotionBlur_McGuire_2012\101_MotionBlur_McGuire_2012.cpp" />
